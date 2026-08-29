@@ -13,6 +13,10 @@ type ComposeContextValue = {
 
 const ComposeContext = createContext<ComposeContextValue | null>(null);
 
+export function useOptionalCompose() {
+	return useContext(ComposeContext);
+}
+
 export function useCompose() {
 	const ctx = useContext(ComposeContext);
 	if (!ctx) throw new Error("useCompose must be used within ComposeProvider");

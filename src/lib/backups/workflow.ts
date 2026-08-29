@@ -12,11 +12,12 @@ import {
 
 export class DatabaseBackupWorkflow extends WorkflowEntrypoint<CloudflareEnv, BackupWorkflowParams> {
 	async run(event: Readonly<WorkflowEvent<BackupWorkflowParams>>, step: WorkflowStep) {
-		let backupId = event.payload?.backupId;
+		let backupId: string | undefined = event.payload?.backupId ?? undefined;
 		if (!backupId) {
-			backupId = await step.do("Check backup schedule", async () =>
+			const scheduled = await step.do("Check backup schedule", async () =>
 				createScheduledBackupIfDue(this.env, event.timestamp),
 			);
+			backupId = scheduled ?? undefined;
 		}
 		if (!backupId) {
 			const retention = await step.do("Delete expired backups", async () => this.deleteExpiredBackups());

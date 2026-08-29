@@ -12,6 +12,7 @@ export async function provisionDomainOnCloudflare(
 	hostname: string,
 	options?: { enableRouting?: boolean; enableSending?: boolean },
 ): Promise<DomainProvisioningResult> {
+	const normalized = hostname.toLowerCase().trim();
 	let zone: { id: string; name: string } | null = null;
 	try {
 		zone = await findZoneByHostname(env, normalized);

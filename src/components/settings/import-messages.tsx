@@ -72,9 +72,9 @@ export function ImportMessages({ destination, sourceLabel }: ImportMessagesProps
 					{result && (
 						<div className="rounded-lg border border-green-100 bg-green-50 px-4 py-3 text-sm text-green-700">
 							<p className="font-medium">{getImportSummary(result)}</p>
-							{(result.errors ?? []).length > 0 && (
+							{Boolean(result.errors && result.errors.length > 0) && (
 								<ul className="mt-2 list-disc space-y-1 pl-5 text-xs">
-									{result.errors.slice(0, 5).map((item) => (
+									{(result.errors ?? []).slice(0, 5).map((item) => (
 										<li key={item}>{item}</li>
 									))}
 								</ul>

@@ -33,6 +33,8 @@ import {
 
 const pageSize = 25;
 
+import { SmartAvatar } from "@/components/smart-avatar";
+
 function MessageListRow({
 	message,
 	config,
@@ -118,44 +120,31 @@ function MessageListRow({
 	}
 
 	const className =
-		`group relative grid min-h-12 w-full grid-cols-[24px_32px_minmax(160px,240px)_1fr_auto] items-center gap-3 px-6 text-left text-sm hover:z-10 hover:bg-[#f2f6fc] hover:shadow-sm ${
+		`group relative grid min-h-12 w-full grid-cols-[24px_28px_minmax(160px,220px)_1fr_auto] items-center gap-3 px-6 text-left text-sm hover:z-10 hover:bg-[#f2f6fc] hover:shadow-sm ${
 			active || selected ? "bg-blue-50" : ""
 		} ${draggable ? "cursor-grab active:cursor-grabbing" : ""}`;
 	const content = (
 		<>
-			{config.folder === "inbox" && message.direction === "inbound" && (
-				<Tooltip label={starred ? "Starred" : "Not starred"}>
-					<Button
-						type="button"
-						variant="ghost"
-						size="sm"
-						onClick={(event) => {
-							event.preventDefault();
-							event.stopPropagation();
-							void toggleMessageStar(message.id).then((result) => setStarred(result.starred));
-						}}
-						aria-label={starred ? "Starred" : "Not starred"}
-					>
-						<Icon className={`h-4 w-4 ${starred ? "fill-amber-400 text-amber-400" : "text-neutral-300"}`} />
-					</Button>
-				</Tooltip>
-			)}
-			{(config.folder !== "inbox" || message.direction !== "inbound") && (
-				<Icon className="h-4 w-4 text-neutral-300" />
-			)}
+			<div className="flex items-center justify-center">
+				<SmartAvatar
+					name={party}
+					address={message.direction === "inbound" ? message.fromAddr : message.toAddr}
+					size="sm"
+				/>
+			</div>
 			<span className={getMessagePartyClassName(rowMessage, config.folder)}>
 				{party}
 			</span>
-			<span className="truncate text-neutral-700">
-				<span className={unread ? "font-bold text-neutral-900" : ""}>
+			<span className="truncate text-neutral-700 dark:text-neutral-300">
+				<span className={unread ? "font-bold text-neutral-900 dark:text-neutral-100" : ""}>
 					{rowMessage.subject ?? "(no subject)"}
 				</span>
-				<span className="text-neutral-500"> - {getMessagePreview(rowMessage, config.folder)}</span>
+				<span className="text-neutral-500 dark:text-neutral-400"> - {getMessagePreview(rowMessage, config.folder)}</span>
 			</span>
 			<time
 				dateTime={message.createdAt}
 				className={`min-w-[96px] whitespace-nowrap text-right text-xs group-hover:opacity-0 ${
-					unread ? "font-semibold text-neutral-800" : "text-neutral-500"
+					unread ? "font-semibold text-neutral-800 dark:text-neutral-200" : "text-neutral-500 dark:text-neutral-400"
 				}`}
 			>
 				{formatMessageListTimestamp(message.createdAt)}

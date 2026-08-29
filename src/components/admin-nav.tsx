@@ -19,11 +19,13 @@ import { useSidebar } from "./sidebar-state";
 
 const sections = [
   {
-    // label: "Overview",
+    label: "",
+    id: "overview",
     links: [{ href: "/admin", label: "Overview", icon: Settings }],
   },
   {
     label: "Email",
+    id: "email",
     links: [
       { href: "/mailboxes", label: "Mailboxes", icon: Mail },
       { href: "/domains", label: "Domains", icon: Globe2 },
@@ -31,6 +33,7 @@ const sections = [
   },
   {
     label: "Administration",
+    id: "admin",
     links: [
       { href: "/accounts", label: "Accounts", icon: Users },
       { href: "/activity", label: "Activity", icon: Activity },
@@ -39,6 +42,7 @@ const sections = [
   },
   {
     label: "Product",
+    id: "product",
     links: [
       { href: "/branding", label: "Branding", icon: Palette },
       { href: "/licenses", label: "Licenses", icon: BadgeDollarSign },
@@ -56,7 +60,7 @@ export function AdminNav({ className }: { className?: string }) {
     <nav className={cn("flex min-h-full flex-col gap-1", className)}>
       <SidebarHeader href="/inbox" label="Admin" />
       <div className={cn("space-y-4", minimal && "space-y-2")}>
-        {sections.map((section) => {
+        {sections.map((section, idx) => {
           const links = section.links.filter(
             (link) =>
               link.href !== "/branding" || branding.canCustomizeBranding,
@@ -64,7 +68,7 @@ export function AdminNav({ className }: { className?: string }) {
           if (links.length === 0) return null;
 
           return (
-            <section key={section.label}>
+            <section key={section.id || section.label || `sec-${idx}`}>
               {!minimal && section.label && (
                 <p className="mb-1 px-3 text-[11px] font-semibold uppercase tracking-wider text-neutral-400">
                   {section.label}

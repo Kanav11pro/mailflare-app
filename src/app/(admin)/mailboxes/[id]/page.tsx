@@ -190,7 +190,7 @@ export default function MailboxSettingsPage() {
                 </div>
                 <Button
                   type="button"
-                  size="icon"
+                  size="sm"
                   variant="ghost"
                   aria-label={`Remove ${member.userName}`}
                   disabled={removeMember.isPending}

@@ -21,11 +21,11 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
 	return (
-		<html lang="en">
+		<html lang="en" suppressHydrationWarning>
 			<head>
 				<link rel="icon" href="/api/branding/icon"></link>
 			</head>
-			<body className={`${geistSans.variable} ${geistMono.variable} antialiased light`}>
+			<body className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-dvh`}>
 				<Providers>{children}</Providers>
 			</body>
 		</html>

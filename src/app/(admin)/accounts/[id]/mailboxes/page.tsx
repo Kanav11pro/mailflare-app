@@ -101,7 +101,7 @@ export default function AccountMailboxesPage() {
               <Button
                 type="button"
                 variant="ghost"
-                size="icon"
+                size="sm"
                 onClick={() => void removeMailbox(mailbox.id)}
                 aria-label="Remove inbox"
               >

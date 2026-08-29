@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -7,21 +8,24 @@ import {
   ArrowRight,
   Globe2,
   Trash2,
+  Activity,
 } from "lucide-react";
+import { DnsHealthCard } from "@/components/domains/dns-health-card";
 
 export default function DomainItemCard({ item, dns, remove, loadDns }: any) {
+  const [showHealth, setShowHealth] = useState(false);
 
   return (
     <div
       key={item.id}
-      className="flex flex-col gap-3 rounded-3xl bg-white p-5"
+      className="flex flex-col gap-3 rounded-3xl bg-white p-5 dark:bg-[#1a1b20]"
     >
       <div className="flex items-start gap-3">
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-neutral-100 text-neutral-600">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400">
           <Globe2 className="h-5 w-5" />
         </span>
         <div className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-semibold text-neutral-900">
+          <span className="block truncate text-base font-semibold text-neutral-900 dark:text-neutral-100">
             {item.hostname}
           </span>
           <div className="mt-2 flex flex-wrap gap-2">
@@ -33,6 +37,15 @@ export default function DomainItemCard({ item, dns, remove, loadDns }: any) {
           </div>
         </div>
         <div className="flex gap-2">
+          <Button
+            variant={showHealth ? "default" : "outline"}
+            size="sm"
+            onClick={() => setShowHealth((prev) => !prev)}
+            className="gap-1 text-xs"
+          >
+            <Activity className="h-3.5 w-3.5" />
+            Health
+          </Button>
           <Button variant="outline" size="sm" onClick={() => loadDns(item.id)}>
             DNS
           </Button>
@@ -47,6 +60,13 @@ export default function DomainItemCard({ item, dns, remove, loadDns }: any) {
           </Button>
         </div>
       </div>
+
+      {showHealth && (
+        <div className="mt-2">
+          <DnsHealthCard domainId={item.id} hostname={item.hostname} />
+        </div>
+      )}
+
       {dns && (
         <div className="flex flex-wrap items-center gap-3 text-xs">
           <span className="flex items-center gap-1 text-neutral-500">

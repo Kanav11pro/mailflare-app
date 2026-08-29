@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FileText, Minimize2, Paperclip, Send, X } from "lucide-react";
+import { FileText, Paperclip, Send, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,8 +11,10 @@ import { useSelectedMailbox } from "@/components/mailbox-provider";
 import { authFetch } from "@/lib/auth/client";
 import { formatEmailAddress, getEmailAddress } from "@/lib/email/address";
 import { cn } from "@/lib/utils";
-import { buildSendFormData, fetchDraft, formatAttachmentSize } from "./utils";
+import { fetchDraft, formatAttachmentSize } from "./utils";
 import type { ComposeAttachment } from "./types";
+import { useUndoSend } from "./undo-send-context";
+import { FormattingToolbar } from "./formatting-toolbar";
 
 type Toast = { type: "success" | "error"; message: string } | null;
 
@@ -26,6 +28,7 @@ export function ComposeForm({
 	onClose?: () => void;
 }) {
 	const { selectedMailbox, setSelectedMailbox, mailboxes } = useSelectedMailbox();
+	const { queueSend } = useUndoSend();
 	const [draftId, setDraftId] = useState<string | null>(null);
 	const [to, setTo] = useState("");
 	const [subject, setSubject] = useState("");
@@ -39,6 +42,7 @@ export function ComposeForm({
 	const [selectedFrom, setSelectedFrom] = useState("");
 	const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const attachmentInput = useRef<HTMLInputElement | null>(null);
+	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
 	useEffect(() => {
 		if (!selectedMailbox && mailboxes.length === 1) setSelectedMailbox(mailboxes[0]);
@@ -50,6 +54,7 @@ export function ComposeForm({
 			? selectedMailbox.senderAddresses
 			: [`${selectedMailbox.localPart}@${selectedMailbox.hostname}`];
 	}, [selectedMailbox]);
+
 	const senderOptions = useMemo(
 		() => mailboxes.flatMap((mailbox) => {
 			const addresses = mailbox.senderAddresses?.length
@@ -59,6 +64,7 @@ export function ComposeForm({
 		}),
 		[mailboxes],
 	);
+
 	const fromAddr = selectedMailbox && selectedFrom
 		? formatEmailAddress(selectedFrom, selectedMailbox.displayName)
 		: "";
@@ -79,64 +85,58 @@ export function ComposeForm({
 
 	useEffect(() => {
 		if (!draftIdToLoad) return;
-
-		let cancelled = false;
+		let active = true;
 		setLoadingDraft(true);
 		fetchDraft(draftIdToLoad)
 			.then((draft) => {
-				if (cancelled) return;
-
+				if (!active || !draft) return;
 				setDraftId(draft.id);
 				setTo(draft.toAddr);
 				setSubject(draft.subject ?? "");
 				setText(draft.textBody ?? "");
-				setLoadedDraftMailboxId(draft.mailboxId);
-				setLoadedDraftFrom(getEmailAddress(draft.fromAddr).toLowerCase());
-			})
-			.catch((err) => {
-				if (cancelled) return;
-				const message = err instanceof Error ? err.message : "Failed to load draft";
-				setToast({ type: "error", message });
+				setLoadedDraftMailboxId(draft.mailboxId ?? null);
+				setLoadedDraftFrom(draft.fromAddr);
 			})
 			.finally(() => {
-				if (!cancelled) setLoadingDraft(false);
+				if (active) setLoadingDraft(false);
 			});
-
 		return () => {
-			cancelled = true;
+			active = false;
 		};
 	}, [draftIdToLoad]);
 
 	useEffect(() => {
 		if (!loadedDraftMailboxId) return;
-		if (selectedMailbox?.id === loadedDraftMailboxId) return;
-
-		const draftMailbox = mailboxes.find((mailbox) => mailbox.id === loadedDraftMailboxId);
-		if (draftMailbox) setSelectedMailbox(draftMailbox);
-	}, [loadedDraftMailboxId, mailboxes, selectedMailbox?.id, setSelectedMailbox]);
+		const targetMailbox = mailboxes.find((item) => item.id === loadedDraftMailboxId);
+		if (targetMailbox) {
+			setSelectedMailbox(targetMailbox);
+			const exactAddress = loadedDraftFrom ? getEmailAddress(loadedDraftFrom) : null;
+			if (exactAddress && targetMailbox.senderAddresses?.includes(exactAddress)) {
+				setSelectedFrom(exactAddress);
+			}
+		}
+		setLoadedDraftMailboxId(null);
+		setLoadedDraftFrom(null);
+	}, [loadedDraftFrom, loadedDraftMailboxId, mailboxes, setSelectedMailbox]);
 
 	useEffect(() => {
-		if (!loadedDraftFrom || !senderAddresses.includes(loadedDraftFrom)) return;
-		setSelectedFrom(loadedDraftFrom);
-	}, [loadedDraftFrom, senderAddresses]);
-
-	useEffect(() => {
-		const hasContent = to.trim() || subject.trim() || text.trim();
-		if (!fromAddr || !hasContent || loadingDraft) return;
+		if (loadingDraft) return;
 		if (saveTimer.current) clearTimeout(saveTimer.current);
 
+		if (!to && !subject && !text) return;
+
 		saveTimer.current = setTimeout(async () => {
-			const payload = {
-				mailboxId: selectedMailbox?.id,
-				from: fromAddr,
-				to,
-				subject,
-				text,
-			};
-			const res = await authFetch(draftId ? `/api/drafts/${draftId}` : "/api/drafts", {
-				method: draftId ? "PATCH" : "POST",
+			const res = await authFetch("/api/drafts", {
+				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify(payload),
+				body: JSON.stringify({
+					id: draftId ?? undefined,
+					from: fromAddr,
+					to,
+					subject,
+					text,
+					mailboxId: selectedMailbox?.id,
+				}),
 			});
 			const data = (await res.json()) as { draft?: { id: string } };
 			if (res.ok && data.draft?.id) setDraftId(data.draft.id);
@@ -149,38 +149,56 @@ export function ComposeForm({
 
 	async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
 		event.preventDefault();
-		setLoading(true);
-		const res = await authFetch("/api/send", {
-			method: "POST",
-			body: buildSendFormData({
-				attachments,
-				from: fromAddr,
-				to,
-				subject,
-				text,
-				mailboxId: selectedMailbox?.id,
-			}),
-		});
-		const data = (await res.json()) as { messageId?: string; error?: string };
-		setLoading(false);
+		if (!fromAddr || !to.trim()) return;
 
-		if (!res.ok) {
-			setToast({ type: "error", message: data.error ?? "Send failed" });
-			return;
-		}
+		const currentFrom = fromAddr;
+		const currentTo = to;
+		const currentSubject = subject;
+		const currentText = text;
+		const currentAttachments = [...attachments];
+		const currentDraftId = draftId;
+		const currentMailboxId = selectedMailbox?.id;
 
-		if (draftId) {
-			void authFetch(`/api/drafts/${draftId}`, { method: "DELETE" }).finally(() => {
-				window.dispatchEvent(new Event("mailflare:messages-changed"));
-			});
-		}
+		// Queue with 5-second cancelable undo buffer
+		queueSend(
+			{
+				from: currentFrom,
+				to: currentTo,
+				subject: currentSubject,
+				text: currentText,
+				attachments: currentAttachments,
+				draftId: currentDraftId,
+				mailboxId: currentMailboxId,
+			},
+			(payload) => {
+				// On Undo clicked: restore state
+				setTo(payload.to);
+				setSubject(payload.subject);
+				setText(payload.text);
+				setAttachments(payload.attachments);
+				setDraftId(payload.draftId ?? null);
+				setToast({ type: "success", message: "Send undone! Draft restored." });
+			},
+		);
+
 		setDraftId(null);
 		setTo("");
 		setSubject("");
 		setText("");
 		setAttachments([]);
-		setToast({ type: "success", message: "Message sent" });
-		window.dispatchEvent(new Event("mailflare:messages-changed"));
+		if (mode === "popup" && onClose) {
+			onClose();
+		}
+	}
+
+	function handleKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
+		if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+			event.preventDefault();
+			const form = event.currentTarget.form;
+			if (form) {
+				form.requestSubmit();
+			}
+		}
 	}
 
 	function addAttachments(files: FileList | null) {
@@ -221,43 +239,43 @@ export function ComposeForm({
 
 	const frameClass =
 		mode === "popup"
-			? "fixed bottom-4 right-4 z-40 flex h-[min(520px,calc(100vh-88px))] w-[min(560px,calc(100vw-32px))] flex-col overflow-hidden rounded-lg border border-neutral-200 bg-white shadow-2xl"
-			: "flex h-full min-h-[720px] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm";
+			? "fixed bottom-4 right-4 z-40 flex h-[min(540px,calc(100vh-88px))] w-[min(580px,calc(100vw-32px))] flex-col overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-2xl dark:border-neutral-800 dark:bg-[#1a1b20]"
+			: "flex h-full min-h-[720px] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm dark:border-neutral-800 dark:bg-[#1a1b20]";
 
 	return (
 		<>
 			{toast && (
 				<div
 					className={cn(
-						"fixed right-6 top-6 z-50 rounded-lg px-4 py-3 text-sm font-medium shadow-lg",
-						toast.type === "success" ? "bg-green-600 text-white" : "bg-red-600 text-white",
+						"fixed right-6 top-6 z-[200] rounded-xl px-4 py-3 text-sm font-medium shadow-xl backdrop-blur-md",
+						toast.type === "success" ? "bg-green-600/90 text-white" : "bg-red-600/90 text-white",
 					)}
 				>
 					{toast.message}
 				</div>
 			)}
 			<form onSubmit={onSubmit} className={frameClass}>
-				<div className="flex h-9 items-center justify-between bg-neutral-800 px-4 text-sm font-medium text-white">
-					<span>{loadingDraft ? "Loading draft" : draftId ? "Draft saved" : "New Message"}</span>
+				<div className="flex h-10 items-center justify-between bg-neutral-900 px-4 text-sm font-medium text-white dark:bg-[#121316]">
+					<span className="font-semibold text-xs tracking-wide uppercase text-neutral-300">
+						{loadingDraft ? "Loading draft..." : draftId ? "Draft saved" : "New Message"}
+					</span>
 					{mode === "popup" && (
 						<div className="flex items-center gap-3 text-neutral-300">
-							<Minimize2 className="h-4 w-4" />
-							<button type="button" onClick={onClose}>
+							<button type="button" onClick={onClose} className="rounded-lg p-1 hover:bg-neutral-800 hover:text-white">
 								<X className="h-4 w-4" />
 							</button>
 						</div>
 					)}
 				</div>
-				<div className="border-b border-neutral-100 px-4 py-1">
+				<div className="border-b border-neutral-100 px-4 py-1.5 dark:border-neutral-800">
 					<Label htmlFor={`${mode}-from`} className="sr-only">From</Label>
 					<Select
 						id={`${mode}-from`}
 						value={selectedMailbox && selectedFrom ? `${selectedMailbox.id}|${selectedFrom}` : ""}
 						onChange={(event) => selectSender(event.target.value)}
-						placeholder="Select a mailbox first"
 						required
 						disabled={loadingDraft || senderOptions.length === 0}
-						className="h-8 border-0 px-0 py-1 text-sm shadow-none focus-visible:ring-0"
+						className="h-8 border-0 px-0 py-1 text-sm shadow-none focus-visible:ring-0 text-neutral-700 dark:text-neutral-300"
 					>
 						{senderOptions.length === 0 && <option value="">Select a mailbox first</option>}
 						{senderOptions.map(({ mailbox, address }) => (
@@ -265,7 +283,7 @@ export function ComposeForm({
 						))}
 					</Select>
 				</div>
-				<div className="border-b border-neutral-100 px-4 py-1">
+				<div className="border-b border-neutral-100 px-4 py-1.5 dark:border-neutral-800">
 					<Label htmlFor={`${mode}-to`} className="sr-only">To</Label>
 					<Input
 						id={`${mode}-to`}
@@ -275,10 +293,10 @@ export function ComposeForm({
 						placeholder='Recipients, or "Maya Chen" <maya@example.com>'
 						required
 						disabled={loadingDraft}
-						className="h-8 border-0 px-0 py-1 shadow-none focus-visible:ring-0"
+						className="h-8 border-0 px-0 py-1 shadow-none focus-visible:ring-0 text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400"
 					/>
 				</div>
-				<div className="border-b border-neutral-100 px-4 py-1">
+				<div className="border-b border-neutral-100 px-4 py-1.5 dark:border-neutral-800">
 					<Label htmlFor={`${mode}-subject`} className="sr-only">Subject</Label>
 					<Input
 						id={`${mode}-subject`}
@@ -287,29 +305,35 @@ export function ComposeForm({
 						placeholder="Subject"
 						required
 						disabled={loadingDraft}
-						className="h-8 border-0 px-0 py-1 shadow-none focus-visible:ring-0"
+						className="h-8 border-0 px-0 py-1 shadow-none focus-visible:ring-0 font-medium text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400"
 					/>
 				</div>
+
+				<FormattingToolbar textareaRef={textareaRef} text={text} setText={setText} />
+
 				<div className="min-h-0 flex-1 px-4 py-2">
 					<Label htmlFor={`${mode}-text`} className="sr-only">Body</Label>
 					<Textarea
 						id={`${mode}-text`}
+						ref={textareaRef}
 						value={text}
 						onChange={(event) => setText(event.target.value)}
+						onKeyDown={handleKeyDown}
+						placeholder="Write your email here (supports Markdown, Ctrl+Enter to send)..."
 						disabled={loadingDraft}
-						className="h-full min-h-full resize-none border-0 px-0 shadow-none focus-visible:ring-0"
+						className="h-full min-h-full resize-none border-0 px-0 text-sm leading-relaxed shadow-none focus-visible:ring-0 text-neutral-800 dark:text-neutral-200 placeholder:text-neutral-400"
 					/>
 				</div>
 				{attachments.length > 0 && (
-					<div className="flex flex-wrap gap-2 border-t border-neutral-100 px-4 py-3">
+					<div className="flex flex-wrap gap-2 border-t border-neutral-100 px-4 py-3 dark:border-neutral-800">
 						{attachments.map((attachment) => (
 							<div
 								key={attachment.id}
-								className="flex max-w-full items-center gap-2 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm"
+								className="flex max-w-full items-center gap-2 rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-1.5 text-xs dark:border-neutral-700 dark:bg-neutral-800/60"
 							>
-								<FileText className="h-4 w-4 shrink-0 text-neutral-500" />
-								<span className="max-w-48 truncate">{attachment.file.name}</span>
-								<span className="text-xs text-neutral-400">
+								<FileText className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+								<span className="max-w-48 truncate font-medium text-neutral-700 dark:text-neutral-200">{attachment.file.name}</span>
+								<span className="text-neutral-400">
 									{formatAttachmentSize(attachment.file.size)}
 								</span>
 								<button
@@ -319,7 +343,7 @@ export function ComposeForm({
 											current.filter((item) => item.id !== attachment.id),
 										)
 									}
-									className="rounded-full p-1 text-neutral-400 hover:bg-neutral-200 hover:text-neutral-700"
+									className="rounded-full p-0.5 text-neutral-400 hover:bg-neutral-200 hover:text-neutral-700 dark:hover:bg-neutral-700"
 								>
 									<X className="h-3.5 w-3.5" />
 									<span className="sr-only">Remove attachment</span>
@@ -328,7 +352,7 @@ export function ComposeForm({
 						))}
 					</div>
 				)}
-				<div className="flex items-center gap-3 border-t border-neutral-100 px-4 py-3">
+				<div className="flex items-center gap-3 border-t border-neutral-100 px-4 py-3 dark:border-neutral-800">
 					<Input
 						ref={attachmentInput}
 						type="file"
@@ -342,15 +366,16 @@ export function ComposeForm({
 						size="sm"
 						onClick={() => attachmentInput.current?.click()}
 						disabled={loading || loadingDraft}
+						className="rounded-xl gap-1.5 text-xs text-neutral-600 dark:text-neutral-300"
 					>
 						<Paperclip className="h-4 w-4" />
 						Attach
 					</Button>
 					<span className="flex-1" />
-					<p className="text-xs text-neutral-500">{draftId ? "Saved to drafts" : "Autosaves as draft"}</p>
-					<Button type="submit" disabled={loading || loadingDraft || !fromAddr} className="rounded-full px-5">
-						<Send className="h-4 w-4" />
-						{loading ? "Sending" : "Send"}
+					<p className="text-[11px] text-neutral-400">{draftId ? "Saved" : "Autosaving"} • Ctrl+Enter to send</p>
+					<Button type="submit" disabled={loading || loadingDraft || !fromAddr} className="rounded-full px-5 gap-2 bg-blue-600 hover:bg-blue-500 text-white shadow-md">
+						<Send className="h-3.5 w-3.5" />
+						Send
 					</Button>
 				</div>
 			</form>

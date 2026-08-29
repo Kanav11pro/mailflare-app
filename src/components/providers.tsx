@@ -10,6 +10,11 @@ import { clearMessageClientState } from "@/hooks/utils";
 import { clearMessageDetailCache } from "@/lib/messages/detail-cache";
 import { AUTH_SESSION_CHANGED_EVENT } from "@/lib/auth/client";
 
+import { ThemeProvider } from "next-themes";
+
+import { UndoSendProvider } from "@/components/compose/undo-send-context";
+import { UndoSendToast } from "@/components/compose/undo-send-toast";
+
 export function Providers({ children }: { children: React.ReactNode }) {
 	const realtime = useMessagePolling();
 
@@ -40,16 +45,21 @@ export function Providers({ children }: { children: React.ReactNode }) {
 	}, [client]);
 
 	return (
-		<QueryClientProvider client={client}>
-			<BrandingProvider>
-				{children}
-				{realtime.notification && (
-					<NewMessagePopup
-						notification={realtime.notification}
-						onDismiss={realtime.dismissNotification}
-					/>
-				)}
-			</BrandingProvider>
-		</QueryClientProvider>
+		<ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+			<QueryClientProvider client={client}>
+				<BrandingProvider>
+					<UndoSendProvider>
+						{children}
+						<UndoSendToast />
+						{realtime.notification && (
+							<NewMessagePopup
+								notification={realtime.notification}
+								onDismiss={realtime.dismissNotification}
+							/>
+						)}
+					</UndoSendProvider>
+				</BrandingProvider>
+			</QueryClientProvider>
+		</ThemeProvider>
 	);
 }

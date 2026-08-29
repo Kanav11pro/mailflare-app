@@ -30,8 +30,9 @@ export function getMessagePreview(message: Message, folder: MessageFolderConfig[
 	return message.snippet || "No preview";
 }
 
-export function formatMessageListTimestamp(createdAt: string): string {
+export function formatMessageListTimestamp(createdAt: string | Date): string {
 	const date = dayjs(createdAt);
+	if (!date.isValid()) return "";
 	if (date.isSame(dayjs(), "day")) return date.format("hh:mm A");
 	if (date.isSame(dayjs(), "year")) return date.format("MMM DD");
 	return date.format("MMM DD, YYYY");

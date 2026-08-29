@@ -8,6 +8,8 @@ import { ProfileForm } from "./profile-form";
 import type { AccountSettingsResponse } from "./types";
 import { loadAccountSettings } from "./utils";
 
+import { ThemeSettings } from "./theme-settings";
+
 export function AccountSettings() {
 	const [user, setUser] = useState<AccountSettingsResponse["user"]>();
 	const [error, setError] = useState<string | null>(null);
@@ -47,6 +49,8 @@ export function AccountSettings() {
 				<h1 className="text-3xl font-medium text-neutral-900">Account</h1>
 				<p className="mt-1 text-sm text-neutral-500">Manage your account details and sign-in password.</p>
 			</div>
+
+			<ThemeSettings />
 
 			<Card className="rounded-3xl border-0 bg-white px-6">
 				<CardHeader>

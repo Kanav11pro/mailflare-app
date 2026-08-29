@@ -13,11 +13,21 @@ import { LicenseIndicator } from "@/components/license-indicator";
 import { DashboardNav } from "@/components/dashboard-nav";
 import { SidebarProvider } from "@/components/sidebar-state";
 
+import { useState } from "react";
+import { ThemeToggle } from "@/components/theme-toggle";
+import { CommandPalette } from "@/components/command-palette/command-palette";
+import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
+
 export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  useKeyboardShortcuts({
+    onOpenCommandPalette: () => setCommandPaletteOpen(true),
+  });
+
   return (
     <AuthGuard>
       <SidebarProvider>
@@ -29,22 +39,29 @@ export default function DashboardLayout({
                 <DashboardNav />
               </aside>
               <div className="flex min-h-0 min-w-0 flex-col">
-                <header className="flex h-16 w-full shrink-0 items-center gap-4 pr-4 text-sm">
-                  <MailSearchInput />
+                <header className="flex h-16 w-full shrink-0 items-center gap-2 pr-4 text-sm">
+                  <div className="flex-1 cursor-pointer" onClick={() => setCommandPaletteOpen(true)}>
+                    <MailSearchInput />
+                  </div>
+                  <ThemeToggle />
                   <Link
                     href="/settings"
-                    className="flex h-10 w-10 items-center justify-center rounded-full text-neutral-600 hover:bg-neutral-200"
+                    className="flex h-10 w-10 items-center justify-center rounded-full text-neutral-600 hover:bg-neutral-200 dark:text-neutral-300 dark:hover:bg-neutral-800"
                   >
                     <HelpCircle className="h-5 w-5" />
                   </Link>
                   <LicenseIndicator />
                   <MailboxSelector />
                 </header>
-                <main className="min-h-0 flex-1 overflow-y-auto overscroll-contain rounded-tl-3xl bg-white scrollbar-gutter-stable">
+                <main className="min-h-0 flex-1 overflow-y-auto overscroll-contain rounded-tl-3xl bg-white scrollbar-gutter-stable dark:bg-[#15161b]">
                   {children}
                 </main>
               </div>
               <FloatingComposer />
+              <CommandPalette
+                open={commandPaletteOpen}
+                onOpenChange={setCommandPaletteOpen}
+              />
             </div>
           </MailSearchProvider>
         </ComposeProvider>

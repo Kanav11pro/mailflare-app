@@ -26,6 +26,8 @@ import {
 } from "./utils";
 import { extractCloudAttachments } from "./cloud-attachment-utils";
 import { sanitizeEmailHtml } from "./email-html-sanitizer";
+import { SmartAvatar } from "@/components/smart-avatar";
+import { ConversationThread } from "@/components/messages/conversation-thread";
 
 export default function MessageDetailPage() {
   const params = useParams<{ messageId: string }>();
@@ -39,84 +41,86 @@ export default function MessageDetailPage() {
 
   useEffect(() => {
     let cancelled = false;
-
-    async function loadMessage() {
-      const cachedData = getCachedMessageDetailForDisplay(messageId);
-      if (cachedData?.message && cachedData.body) {
-        setData(cachedData);
-        setLoading(false);
-        if (cachedData.attachments !== undefined) return;
-        try {
-          const metadata = await fetchMessageMetadata(messageId);
-          if (!cancelled) setData((current) => current ? { ...current, ...metadata } : current);
-        } catch {
-          // The message body remains usable if supplemental metadata is unavailable.
-        }
-        return;
-      }
-      setLoading(true);
-      const nextData = await fetchMessageDetail(messageId);
-      if (!cancelled) {
-        setData(nextData);
-        setLoading(false);
-      }
+    const cached = getCachedMessageDetailForDisplay(messageId);
+    if (cached) {
+      setData(cached);
+      setLoading(false);
+      return;
     }
 
-    void loadMessage();
+    Promise.all([
+      fetchMessageMetadata(messageId),
+      fetchMessageDetail(messageId),
+    ])
+      .then(([metadata, detail]) => {
+        if (cancelled) return;
+        setData({ ...metadata, ...detail });
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.error("Failed to load message:", error);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
     return () => {
       cancelled = true;
     };
   }, [messageId]);
 
-  if (loading) {
+  if (loading || !data?.message) {
     return <MessageDetailSkeleton />;
   }
 
-  if (!data?.message) {
+  const { message, body, attachments = [] } = data;
+  if (!message) {
     return (
-      <p className="px-6 py-4 text-sm text-neutral-500">
-        {data?.error ?? "Message not found"}
-      </p>
+      <div className="p-8 text-center text-sm text-neutral-500">
+        Message not found
+      </div>
     );
   }
 
-  const { message, body, attachments = [] } = data;
   const currentAccountName =
     selectedMailbox?.displayName ?? selectedMailbox?.localPart;
   const { fromName, fromAddress, toName } = getMessageHeaderParties(
     message,
     currentAccountName,
   );
-  const ownAddress =
-    message.direction === "inbound" ? message.toAddr : message.fromAddr;
+  const toAddress = message.toAddr;
+  const ownAddress = selectedMailbox
+    ? `${selectedMailbox.localPart}@${selectedMailbox.hostname}`
+    : "";
+
+  const htmlBody = sanitizeEmailHtml(
+    resolveInlineAttachmentUrls(body?.htmlBody ?? null, message.id, attachments),
+  );
+
   const bodyDisplay = getMessageBodyDisplay(
     body?.textBody,
     body?.htmlBody,
     message.snippet,
     ownAddress,
   );
-  const htmlBody = sanitizeEmailHtml(
-    resolveInlineAttachmentUrls(bodyDisplay.htmlBody, message.id, attachments),
-  );
   const cloudAttachmentResult = extractCloudAttachments(
     bodyDisplay.latestContent,
   );
 
   return (
-    <div className="h-full overflow-y-auto overscroll-contain scrollbar-gutter-stable">
+    <div className="h-full overflow-y-auto overscroll-contain scrollbar-gutter-stable dark:bg-[#15161b]">
       {message.direction === "inbound" && !message.read && (
         <MarkAsRead messageId={message.id} />
       )}
-      <div className="flex pt-3 pb-2.75 items-center justify-between px-2 border-b border-neutral-200 sticky top-0 bg-white">
+      <div className="flex pt-3 pb-2.75 items-center justify-between px-4 border-b border-neutral-200 sticky top-0 bg-white dark:bg-[#18191e] dark:border-neutral-800 z-10">
+        <Link
+          href={getMessageBackHref(message.direction, message.status)}
+          className="rounded-full p-2 text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
+          title="Back to inbox"
+        >
+          <ArrowLeft className="h-5 w-5" />
+        </Link>
         <div className="flex-1" />
-        {/* <div className="flex items-center flex-row gap-6">
-					<Link
-						href={getMessageBackHref(message.direction, message.status)}
-						className="rounded-full p-2 text-neutral-600 hover:bg-neutral-100"
-					>
-						<ArrowLeft className="h-5 w-5" />
-					</Link>
-				</div> */}
         <MessageActions
           messageId={message.id}
           mailboxId={message.mailboxId}
@@ -130,15 +134,20 @@ export default function MessageDetailPage() {
           ownAddress={ownAddress}
         />
       </div>
-      <article className="px-6 py-4">
-        <h1 className="text-2xl text-neutral-900 mb-4">
+      <article className="px-6 py-6 max-w-4xl mx-auto">
+        <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100 mb-6">
           {message.subject ?? "(no subject)"}
         </h1>
 
-        <div className="mb-6 flex items-start justify-between border-b border-neutral-100 pb-5">
-          <div>
-            <p className="text-sm text-neutral-900">
-              <b>
+        <div className="mb-6 flex items-start justify-between border-b border-neutral-100 dark:border-neutral-800 pb-5">
+          <div className="flex items-center gap-3.5">
+            <SmartAvatar
+              name={fromName}
+              address={message.fromAddr}
+              size="lg"
+            />
+            <div>
+              <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
                 {message.direction === "inbound" ? (
                   <ContactDetailsTrigger
                     mailboxId={message.mailboxId}
@@ -147,32 +156,33 @@ export default function MessageDetailPage() {
                   />
                 ) : (
                   fromName
+                )}{" "}
+                <span className="text-xs font-normal text-neutral-400">&lt;{fromAddress}&gt;</span>
+              </p>
+              <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
+                to{" "}
+                {message.direction === "outbound" ? (
+                  <ContactDetailsTrigger
+                    mailboxId={message.mailboxId}
+                    address={message.toAddr}
+                    name={toName}
+                  />
+                ) : (
+                  toName
                 )}
-              </b>{" "}
-              <span className="text-neutral-500">&lt;{fromAddress}&gt;</span>
-            </p>
-            <p className="text-xs text-neutral-500">
-              to{" "}
-              {message.direction === "outbound" ? (
-                <ContactDetailsTrigger
-                  mailboxId={message.mailboxId}
-                  address={message.toAddr}
-                  name={toName}
-                />
-              ) : (
-                toName
-              )}
-            </p>
+              </p>
+            </div>
           </div>
           <p className="text-xs text-neutral-400">
             {dayjs(message.createdAt).format("MMM DD, YYYY, hh:mmA")}
           </p>
         </div>
-        <div className="prose max-w-none text-neutral-900">
+
+        <div className="prose max-w-none text-neutral-900 dark:text-neutral-100 dark:prose-invert">
           {htmlBody ? (
             <div className="mx-auto" dangerouslySetInnerHTML={{ __html: htmlBody }} />
           ) : (
-            <pre className="whitespace-pre-wrap text-sm text mx-auto">
+            <pre className="whitespace-pre-wrap text-sm text mx-auto font-sans">
               {cloudAttachmentResult.content}
             </pre>
           )}
@@ -183,9 +193,10 @@ export default function MessageDetailPage() {
             />
           ))}
         </div>
+
         {cloudAttachmentResult.attachments.length > 0 && (
-          <section className="mt-8 border-t border-neutral-100 py-6">
-            <h2 className="mb-3 text-sm font-semibold text-neutral-900">
+          <section className="mt-8 border-t border-neutral-100 dark:border-neutral-800 py-6">
+            <h2 className="mb-3 text-sm font-semibold text-neutral-900 dark:text-neutral-100">
               Cloud files ({cloudAttachmentResult.attachments.length})
             </h2>
             <div className="grid gap-2 sm:grid-cols-2">
@@ -195,11 +206,11 @@ export default function MessageDetailPage() {
                   href={attachment.url}
                   target="_blank"
                   rel="noreferrer"
-                  className="flex items-center gap-3 rounded-lg border border-neutral-200 p-3 text-left hover:border-blue-200 hover:bg-blue-50/40"
+                  className="flex items-center gap-3 rounded-xl border border-neutral-200 p-3 text-left hover:border-blue-200 hover:bg-blue-50/40 dark:border-neutral-700 dark:hover:bg-neutral-800"
                 >
                   <Cloud className="h-5 w-5 shrink-0 text-blue-600" />
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium text-neutral-900">
+                    <span className="block truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">
                       {attachment.filename}
                     </span>
                     <span className="block text-xs text-neutral-500">
@@ -212,9 +223,10 @@ export default function MessageDetailPage() {
             </div>
           </section>
         )}
+
         {attachments.length > 0 && (
-          <section className="mt-8 border-t border-neutral-100 py-6">
-            <h2 className="mb-3 text-sm font-semibold text-neutral-900">
+          <section className="mt-8 border-t border-neutral-100 dark:border-neutral-800 py-6">
+            <h2 className="mb-3 text-sm font-semibold text-neutral-900 dark:text-neutral-100">
               Attachments ({attachments.length})
             </h2>
             <div className="grid gap-2 sm:grid-cols-2">
@@ -229,6 +241,16 @@ export default function MessageDetailPage() {
             </div>
           </section>
         )}
+
+        {/* Thread History & Quick Reply */}
+        <ConversationThread
+          currentMessageId={message.id}
+          mailboxId={message.mailboxId}
+          fromAddress={message.fromAddr}
+          toAddress={message.toAddr}
+          subject={message.subject}
+          ownAddress={ownAddress}
+        />
       </article>
       <MessageAttachmentViewer
         attachment={previewAttachment}

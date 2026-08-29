@@ -6,15 +6,42 @@
 	--background: #f6f8fc;
 	--foreground: #202124;
 	--card: #ffffff;
+	--card-foreground: #202124;
 	--muted: #eef3fb;
+	--muted-foreground: #5f6368;
 	--border: #dadce0;
+	--input: #dadce0;
 	--primary: #0b57d0;
 	--primary-foreground: #ffffff;
+	--sidebar-bg: #f6f8fc;
+	--search-bg: #eaf1fb;
+	--panel-bg: #ffffff;
+	--composer-bg: #ffffff;
+}
+
+.dark {
+	--background: #0f1013;
+	--foreground: #f1f3f5;
+	--card: #1a1b20;
+	--card-foreground: #f1f3f5;
+	--muted: #24262d;
+	--muted-foreground: #9ca3af;
+	--border: #2c2f38;
+	--input: #2c2f38;
+	--primary: #3b82f6;
+	--primary-foreground: #ffffff;
+	--sidebar-bg: #0f1013;
+	--search-bg: #1b1d23;
+	--panel-bg: #15161b;
+	--composer-bg: #1c1d23;
 }
 
 @theme inline {
 	--color-background: var(--background);
 	--color-foreground: var(--foreground);
+	--color-card: var(--card);
+	--color-muted: var(--muted);
+	--color-border: var(--border);
 	--font-sans: var(--font-geist-sans);
 	--no-font-mono: var(--font-geist-mono);
 }
@@ -23,6 +50,7 @@ body {
 	background: var(--background);
 	color: var(--foreground);
 	font-family: var(--font-geist-sans), system-ui, sans-serif;
+	transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 pre {
@@ -31,6 +59,144 @@ pre {
 
 .text {
 	font-family: var(--font-geist-sans), system-ui, sans-serif;
+}
+
+/* ==========================================================================
+   Global Interactive Cursor System
+   ========================================================================== */
+
+button,
+[role="button"],
+a,
+select,
+summary,
+input[type="button"],
+input[type="submit"],
+input[type="reset"],
+input[type="checkbox"],
+input[type="radio"],
+input[type="file"]::file-selector-button,
+label[for],
+.cursor-pointer {
+	cursor: pointer !important;
+}
+
+button:disabled,
+[role="button"][aria-disabled="true"],
+input:disabled,
+select:disabled {
+	cursor: not-allowed !important;
+}
+
+/* ==========================================================================
+   Comprehensive Dark Mode Palette Overrides
+   ========================================================================== */
+
+.dark .bg-\[\#f6f8fc\] {
+	background-color: var(--sidebar-bg) !important;
+}
+
+.dark .bg-\[\#eaf1fb\] {
+	background-color: var(--search-bg) !important;
+}
+
+.dark .bg-\[\#eef3fb\] {
+	background-color: #16171d !important;
+}
+
+.dark .hover\:bg-\[\#f2f6fc\]:hover {
+	background-color: #24262e !important;
+}
+
+.dark .bg-white {
+	background-color: var(--card);
+	color: var(--foreground);
+}
+
+.dark .bg-white\/50,
+.dark .bg-white\/55,
+.dark .bg-white\/70,
+.dark .bg-white\/80 {
+	background-color: rgba(26, 27, 32, 0.85);
+}
+
+.dark .border-neutral-200,
+.dark .border-neutral-100,
+.dark .border-neutral-300 {
+	border-color: var(--border);
+}
+
+.dark .text-neutral-900,
+.dark .text-neutral-800 {
+	color: #f1f3f5;
+}
+
+.dark .text-neutral-700,
+.dark .text-neutral-600 {
+	color: #cbd5e1;
+}
+
+.dark .text-neutral-500,
+.dark .text-neutral-400 {
+	color: #94a3b8;
+}
+
+.dark .hover\:bg-neutral-100:hover,
+.dark .hover\:bg-neutral-200:hover,
+.dark .hover\:bg-neutral-50:hover,
+.dark .hover\:bg-blue-50:hover {
+	background-color: #262830;
+}
+
+.dark .bg-neutral-50,
+.dark .bg-neutral-100 {
+	background-color: #202228;
+}
+
+.dark .bg-blue-50 {
+	background-color: rgba(59, 130, 246, 0.12) !important;
+}
+
+.dark .bg-blue-100 {
+	background-color: rgba(59, 130, 246, 0.18);
+	color: #93c5fd;
+}
+
+.dark .text-blue-900,
+.dark .text-blue-950 {
+	color: #bfdbfe;
+}
+
+.dark .divide-neutral-100 > * + *,
+.dark .divide-neutral-200 > * + * {
+	border-color: var(--border) !important;
+}
+
+.dark .shadow-sm,
+.dark .shadow-md,
+.dark .shadow-lg,
+.dark .shadow-xl,
+.dark .shadow-2xl {
+	box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5);
+}
+
+/* Custom scrollbars in dark mode */
+.dark ::-webkit-scrollbar {
+	width: 8px;
+	height: 8px;
+}
+
+.dark ::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+	background: #2c2f38;
+	border-radius: 4px;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+	background: #3f4450;
 }
 
 @keyframes dialog-overlay-show {

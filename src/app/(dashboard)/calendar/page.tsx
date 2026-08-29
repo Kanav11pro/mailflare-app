@@ -32,7 +32,7 @@ export default function CalendarPage() {
     void authFetch(
       `/api/calendar/events?start=${start.toISOString()}&end=${end.toISOString()}`,
     )
-      .then((response) => response.json())
+      .then((response) => response.json() as Promise<{ events?: CalendarEvent[] }>)
       .then((data) => setEvents(data.events ?? []));
   }, []);
   async function addEvent() {
@@ -57,7 +57,7 @@ export default function CalendarPage() {
         }),
       },
     );
-    const data = await response.json();
+    const data = (await response.json()) as { event: CalendarEvent; error?: string };
     if (response.ok) {
       setEvents((items) =>
         editing
