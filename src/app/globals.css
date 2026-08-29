@@ -92,12 +92,20 @@ select:disabled {
    Comprehensive Dark Mode Palette Overrides
    ========================================================================== */
 
-.dark .bg-\[\#f6f8fc\] {
-	background-color: var(--sidebar-bg) !important;
+.dark,
+.dark body {
+	background-color: #0f1013 !important;
+	color: #f1f3f5 !important;
+}
+
+.dark .bg-\[\#f6f8fc\],
+.dark .bg-\[\#f1f4fa\],
+.dark .bg-\[\#f8fafc\] {
+	background-color: #0f1013 !important;
 }
 
 .dark .bg-\[\#eaf1fb\] {
-	background-color: var(--search-bg) !important;
+	background-color: #1b1d23 !important;
 }
 
 .dark .bg-\[\#eef3fb\] {
@@ -109,62 +117,79 @@ select:disabled {
 }
 
 .dark .bg-white {
-	background-color: var(--card);
-	color: var(--foreground);
+	background-color: #1a1b20 !important;
+	color: #f1f3f5 !important;
 }
 
 .dark .bg-white\/50,
 .dark .bg-white\/55,
 .dark .bg-white\/70,
 .dark .bg-white\/80 {
-	background-color: rgba(26, 27, 32, 0.85);
+	background-color: rgba(26, 27, 32, 0.85) !important;
 }
 
 .dark .border-neutral-200,
 .dark .border-neutral-100,
 .dark .border-neutral-300 {
-	border-color: var(--border);
+	border-color: #2c2f38 !important;
 }
 
+.dark .text-neutral-950,
 .dark .text-neutral-900,
 .dark .text-neutral-800 {
-	color: #f1f3f5;
+	color: #f8fafc !important;
 }
 
 .dark .text-neutral-700,
 .dark .text-neutral-600 {
-	color: #cbd5e1;
+	color: #cbd5e1 !important;
 }
 
 .dark .text-neutral-500,
 .dark .text-neutral-400 {
-	color: #94a3b8;
+	color: #94a3b8 !important;
+}
+
+.dark .text-blue-950,
+.dark .text-blue-900,
+.dark .text-blue-800,
+.dark .text-blue-700,
+.dark .text-blue-600 {
+	color: #60a5fa !important;
 }
 
 .dark .hover\:bg-neutral-100:hover,
 .dark .hover\:bg-neutral-200:hover,
 .dark .hover\:bg-neutral-50:hover,
 .dark .hover\:bg-blue-50:hover {
-	background-color: #262830;
+	background-color: #262830 !important;
 }
 
 .dark .bg-neutral-50,
 .dark .bg-neutral-100 {
-	background-color: #202228;
+	background-color: #202228 !important;
 }
 
 .dark .bg-blue-50 {
-	background-color: rgba(59, 130, 246, 0.12) !important;
+	background-color: rgba(59, 130, 246, 0.15) !important;
 }
 
 .dark .bg-blue-100 {
-	background-color: rgba(59, 130, 246, 0.18);
-	color: #93c5fd;
+	background-color: rgba(59, 130, 246, 0.22) !important;
+	color: #93c5fd !important;
 }
 
-.dark .text-blue-900,
-.dark .text-blue-950 {
-	color: #bfdbfe;
+.dark input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]),
+.dark textarea,
+.dark select {
+	background-color: #18191e !important;
+	color: #f8fafc !important;
+	border-color: #2c2f38 !important;
+}
+
+.dark input::placeholder,
+.dark textarea::placeholder {
+	color: #64748b !important;
 }
 
 .dark .divide-neutral-100 > * + *,

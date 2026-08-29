@@ -7,6 +7,7 @@ import { authFetch, getClientSessionToken } from "@/lib/auth/client";
 import { getHomeActions, heroMessages, sidebarItems } from "./utils";
 import { ArrowRight, Inbox, Mail, Search, ShieldCheck } from "lucide-react";
 import { useBranding } from "@/components/branding-provider";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 export default function HomePage() {
   const branding = useBranding();
@@ -32,7 +33,7 @@ export default function HomePage() {
   const actions = getHomeActions(hasUser);
 
   return (
-    <div className="min-h-dvh bg-[#f6f8fc] text-neutral-900">
+    <div className="min-h-dvh bg-[#f6f8fc] text-neutral-900 dark:bg-[#0f1013] dark:text-neutral-100">
       <header className="mx-auto flex h-16 w-full max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
         <Link
           href="/"
@@ -40,20 +41,13 @@ export default function HomePage() {
           aria-label="Email Platform home"
         >
           <img src={branding.iconUrl} height={32} width={32} alt="" />
-          <span className="text-base font-semibold tracking-tight">
+          <span className="text-base font-semibold tracking-tight text-neutral-900 dark:text-neutral-50">
             {branding.appName}
           </span>
         </Link>
 
-        {/* <nav className="hidden items-center gap-6 text-sm font-medium text-neutral-600 md:flex">
-					{landingNavItems.map((item) => (
-						<a key={item.href} href={item.href} className="transition-colors hover:text-neutral-950">
-							{item.label}
-						</a>
-					))}
-				</nav> */}
-
         <div className="flex items-center gap-2">
+          <ThemeToggle />
           {actions.map((action) => (
             <Button key={action.href} variant={action.variant} asChild>
               <Link href={action.href}>{action.label}</Link>
@@ -65,14 +59,14 @@ export default function HomePage() {
       <main>
         <section className="mx-auto grid max-w-7xl grid-cols-1 gap-10 px-4 pb-12 pt-8 sm:px-6 md:pt-16 lg:grid-cols-[0.86fr_1.14fr] lg:px-8">
           <div className="flex max-w-2xl flex-col justify-center">
-            <div className="mb-6 flex w-fit items-center gap-2 text-sm font-medium text-blue-800">
+            <div className="mb-6 flex w-fit items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3.5 py-1 text-sm font-medium text-blue-700 dark:border-blue-900/60 dark:bg-blue-950/40 dark:text-blue-400">
               <ShieldCheck className="h-4 w-4" />
               Cloudflare-native email operations
             </div>
-            <h1 className="max-w-[12ch] text-5xl font-semibold leading-[0.96] tracking-tight text-neutral-950 sm:text-6xl lg:text-7xl">
+            <h1 className="max-w-[12ch] text-5xl font-semibold leading-[0.96] tracking-tight text-neutral-950 dark:text-white sm:text-6xl lg:text-7xl">
               Mailboxes that feel like your inbox.
             </h1>
-            <p className="mt-6 max-w-xl text-lg leading-8 text-neutral-600">
+            <p className="mt-6 max-w-xl text-lg leading-8 text-neutral-600 dark:text-neutral-300">
               Add domains, route inbound mail, send through API keys, and manage
               your mailboxes from one quiet workspace built around the message list.
             </p>
@@ -87,7 +81,7 @@ export default function HomePage() {
                 size="lg"
                 variant="outline"
                 asChild
-                className="rounded-full border-neutral-200 bg-white px-6"
+                className="rounded-full border-neutral-200 bg-white dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 dark:hover:bg-neutral-700 px-6"
               >
                 <Link href={hasUser ? "/inbox" : "/login"}>
                   {hasUser ? "View inbox" : "Log in"}
@@ -96,8 +90,8 @@ export default function HomePage() {
             </div>
           </div>
 
-          <div className="relative min-h-[520px] overflow-hidden rounded-[2rem] border border-white bg-white shadow-[0_24px_70px_-45px_rgba(30,64,175,0.55)]">
-            <div className="grid h-full min-h-[520px] grid-cols-[176px_1fr] bg-white">
+          <div className="relative min-h-[520px] overflow-hidden rounded-[2rem] border border-neutral-200 bg-white shadow-2xl dark:border-neutral-800 dark:bg-[#18191e]">
+            <div className="grid h-full min-h-[520px] grid-cols-[176px_1fr] bg-white dark:bg-[#18191e]">
               <aside className="hidden flex-col gap-2 bg-[#f6f8fc] px-3 py-5 sm:flex">
                 <div className="mb-4 flex items-center gap-3 px-3 text-neutral-700">
                   <Inbox className="h-5 w-5" />

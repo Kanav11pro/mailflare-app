@@ -12,8 +12,17 @@ import {
 } from "lucide-react";
 import { DnsHealthCard } from "@/components/domains/dns-health-card";
 
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+
 export default function DomainItemCard({ item, dns, remove, loadDns }: any) {
   const [showHealth, setShowHealth] = useState(false);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
   return (
     <div
@@ -52,7 +61,7 @@ export default function DomainItemCard({ item, dns, remove, loadDns }: any) {
           <Button
             variant="destructive"
             size="sm"
-            onClick={() => remove.mutate(item.id)}
+            onClick={() => setConfirmDeleteOpen(true)}
             disabled={remove.isPending}
             aria-label={`Remove ${item.hostname}`}
           >
@@ -60,6 +69,46 @@ export default function DomainItemCard({ item, dns, remove, loadDns }: any) {
           </Button>
         </div>
       </div>
+
+      {/* Confirmation Dialog before Deleting Domain */}
+      <Dialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-100 text-red-600 dark:bg-red-950/50 dark:text-red-400">
+                <Trash2 className="h-5 w-5" />
+              </div>
+              <DialogTitle>Delete Domain</DialogTitle>
+            </div>
+            <DialogDescription className="mt-3">
+              Are you sure you want to delete <strong className="text-neutral-900 dark:text-white">{item.hostname}</strong>?
+              This will remove all associated inbound email routing rules, DNS verification, and active mailboxes connected to this domain.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-6 flex justify-end gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setConfirmDeleteOpen(false)}
+              disabled={remove.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={remove.isPending}
+              onClick={() => {
+                remove.mutate(item.id, {
+                  onSettled: () => setConfirmDeleteOpen(false),
+                });
+              }}
+            >
+              {remove.isPending ? "Deleting..." : "Yes, Delete Domain"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {showHealth && (
         <div className="mt-2">

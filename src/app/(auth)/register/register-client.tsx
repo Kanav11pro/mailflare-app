@@ -145,11 +145,15 @@ export function RegisterClient() {
     <AuthShell
       icon={MailPlus}
       title={step === 1 ? "Prepare installation" : showDomainStep ? "Add your domain" : "Create your mailbox"}
-      // description={
-      // 	showDomainStep
-      // 		? "Connect the primary Cloudflare zone first so routing records can be created before the first mailbox."
-      // 		: `Choose a mailbox username on ${accountDomain ?? "the primary domain"} and add a recovery email.`
-      // }
+      footer={
+        <Link
+          href="/login"
+          className="inline-flex items-center gap-1 text-sm font-semibold text-blue-600 hover:underline dark:text-blue-400"
+        >
+          Already created your account? Sign in
+          <ArrowRight className="h-4 w-4" />
+        </Link>
+      }
       steps={
         [
           { label: "System", active: step === 1 },

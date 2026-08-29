@@ -1,8 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { Mail } from "lucide-react";
+import { ArrowRight, Mail } from "lucide-react";
 import { AuthShell } from "@/components/auth/auth-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -47,6 +48,15 @@ export function LoginClient() {
       icon={Mail}
       title="Sign in"
       description="Open your mailbox and continue from the same inbox workspace."
+      footer={
+        <Link
+          href="/setup"
+          className="inline-flex items-center gap-1 text-sm font-semibold text-blue-600 hover:underline dark:text-blue-400"
+        >
+          Need to set up a new domain or install?
+          <ArrowRight className="h-4 w-4" />
+        </Link>
+      }
     >
       <form method="post" onSubmit={onSubmit} className="space-y-5">
         <div className="space-y-2">

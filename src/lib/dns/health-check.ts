@@ -30,19 +30,34 @@ async function queryDns(name: string, type: "MX" | "TXT"): Promise<string[]> {
 	}
 }
 
+function getApexDomain(hostname: string): string {
+	const parts = hostname.split(".");
+	if (parts.length > 2) {
+		return parts.slice(-2).join(".");
+	}
+	return hostname;
+}
+
 export async function checkDomainDnsHealth(hostname: string): Promise<DomainHealthScore> {
 	const normalized = hostname.toLowerCase().trim();
+	const apex = getApexDomain(normalized);
 
-	// Parallel DoH queries
-	const [mxAnswers, txtAnswers, dkimAnswers, dmarcAnswers] = await Promise.all([
+	// Parallel DoH queries across hostname and root apex domain
+	const [mxAnswers, txtAnswers, apexTxtAnswers, dkimSubAnswers, dkimApexAnswers, dmarcSubAnswers, dmarcApexAnswers] = await Promise.all([
 		queryDns(normalized, "MX"),
 		queryDns(normalized, "TXT"),
+		apex !== normalized ? queryDns(apex, "TXT") : Promise.resolve([]),
 		queryDns(`resend._domainkey.${normalized}`, "TXT"),
+		apex !== normalized ? queryDns(`resend._domainkey.${apex}`, "TXT") : Promise.resolve([]),
 		queryDns(`_dmarc.${normalized}`, "TXT"),
+		apex !== normalized ? queryDns(`_dmarc.${apex}`, "TXT") : Promise.resolve([]),
 	]);
 
-	const spfAnswers = txtAnswers.filter((txt) => txt.toLowerCase().includes("v=spf1"));
+	const allTxtAnswers = [...txtAnswers, ...apexTxtAnswers];
+	const spfAnswers = allTxtAnswers.filter((txt) => txt.toLowerCase().includes("v=spf1"));
+	const dkimAnswers = [...dkimSubAnswers, ...dkimApexAnswers];
 	const dkimFound = dkimAnswers.filter((txt) => txt.toLowerCase().includes("k=rsa") || txt.toLowerCase().includes("p="));
+	const dmarcAnswers = [...dmarcSubAnswers, ...dmarcApexAnswers];
 	const dmarcFound = dmarcAnswers.filter((txt) => txt.toLowerCase().includes("v=dmarc1"));
 
 	const checks: DnsRecordCheck[] = [];
