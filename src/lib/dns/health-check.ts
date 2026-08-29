@@ -43,8 +43,9 @@ export async function checkDomainDnsHealth(hostname: string): Promise<DomainHeal
 	const apex = getApexDomain(normalized);
 
 	// Parallel DoH queries across hostname and root apex domain
-	const [mxAnswers, txtAnswers, apexTxtAnswers, dkimSubAnswers, dkimApexAnswers, dmarcSubAnswers, dmarcApexAnswers] = await Promise.all([
+	const [mxAnswers, apexMxAnswers, txtAnswers, apexTxtAnswers, dkimSubAnswers, dkimApexAnswers, dmarcSubAnswers, dmarcApexAnswers] = await Promise.all([
 		queryDns(normalized, "MX"),
+		apex !== normalized ? queryDns(apex, "MX") : Promise.resolve([]),
 		queryDns(normalized, "TXT"),
 		apex !== normalized ? queryDns(apex, "TXT") : Promise.resolve([]),
 		queryDns(`resend._domainkey.${normalized}`, "TXT"),
@@ -53,6 +54,7 @@ export async function checkDomainDnsHealth(hostname: string): Promise<DomainHeal
 		apex !== normalized ? queryDns(`_dmarc.${apex}`, "TXT") : Promise.resolve([]),
 	]);
 
+	const allMxAnswers = [...mxAnswers, ...apexMxAnswers];
 	const allTxtAnswers = [...txtAnswers, ...apexTxtAnswers];
 	const spfAnswers = allTxtAnswers.filter((txt) => txt.toLowerCase().includes("v=spf1"));
 	const dkimAnswers = [...dkimSubAnswers, ...dkimApexAnswers];
@@ -64,17 +66,17 @@ export async function checkDomainDnsHealth(hostname: string): Promise<DomainHeal
 	let score = 0;
 
 	// 1. MX Record Check
-	const hasMx = mxAnswers.length > 0;
+	const hasMx = allMxAnswers.length > 0;
 	if (hasMx) {
 		score += 25;
 		checks.push({
 			type: "MX",
-			name: normalized,
+			name: mxAnswers.length > 0 ? normalized : apex,
 			status: "pass",
-			foundValues: mxAnswers,
-			expectedValue: "feedback-smtp.us-east-1.amazonses.com or cloudflare.net",
-			recommendation: "Incoming mail servers are properly routed.",
-			copyName: normalized,
+			foundValues: allMxAnswers,
+			expectedValue: "Active mail exchange servers detected",
+			recommendation: "Mail exchange servers are active and routed.",
+			copyName: "mail",
 			copyValue: "feedback-smtp.us-east-1.amazonses.com",
 		});
 	} else {
