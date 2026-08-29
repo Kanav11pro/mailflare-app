@@ -61,7 +61,13 @@ export async function ensureMailboxDomainRouting(
 		addresses.map(async (address) => {
 			const hostname = address.slice(address.lastIndexOf("@") + 1);
 			const domain = domainsByHostname.get(hostname);
-			if (domain) await ensureEmailRoutingRuleToWorker(env, domain.zoneId, address);
+			if (domain && !domain.zoneId.startsWith("ext_")) {
+				try {
+					await ensureEmailRoutingRuleToWorker(env, domain.zoneId, address);
+				} catch (error) {
+					console.warn(`Skipping Cloudflare routing rule for ${address}:`, error);
+				}
+			}
 		}),
 	);
 }

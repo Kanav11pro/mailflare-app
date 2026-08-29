@@ -78,20 +78,43 @@ export async function getDomainDns(
 	env: CloudflareEnv,
 	domain: typeof domains.$inferSelect,
 ): Promise<DomainDnsView> {
-	const routingDns = await getEmailRoutingDns(env, domain.zoneId);
-	const routingSettings = await getEmailRoutingSettings(env, domain.zoneId);
-	let sending: CfDnsRecord[] = [];
-	if (domain.sendingSubdomainTag) {
-		sending = await getSendingSubdomainDns(env, domain.zoneId, domain.sendingSubdomainTag);
+	if (domain.zoneId.startsWith("ext_")) {
+		return {
+			routing: {
+				records: [],
+				missing: [],
+				status: "external (Resend/Vercel)",
+			},
+			sending: [],
+		};
 	}
-	return {
-		routing: {
-			records: routingDns.records,
-			missing: routingDns.missing,
-			status: routingSettings.status,
-		},
-		sending,
-	};
+
+	try {
+		const routingDns = await getEmailRoutingDns(env, domain.zoneId);
+		const routingSettings = await getEmailRoutingSettings(env, domain.zoneId);
+		let sending: CfDnsRecord[] = [];
+		if (domain.sendingSubdomainTag) {
+			sending = await getSendingSubdomainDns(env, domain.zoneId, domain.sendingSubdomainTag);
+		}
+		return {
+			routing: {
+				records: routingDns.records,
+				missing: routingDns.missing,
+				status: routingSettings.status,
+			},
+			sending,
+		};
+	} catch (error) {
+		console.warn("Failed to fetch Cloudflare DNS for domain:", domain.hostname, error);
+		return {
+			routing: {
+				records: [],
+				missing: [],
+				status: "external",
+			},
+			sending: [],
+		};
+	}
 }
 
 export async function removeDomainForUser(
@@ -107,25 +130,27 @@ export async function removeDomainForUser(
 		.limit(1);
 	if (!domain) throw new Error("Domain not found");
 
-	try {
-		await deleteEmailRoutingRulesForDomain(env, domain.zoneId, domain.hostname);
-	} catch (err) {
-		console.warn("deleteEmailRoutingRulesForDomain", err);
-	}
-
-	if (domain.routingEnabled) {
+	if (!domain.zoneId.startsWith("ext_")) {
 		try {
-			await disableEmailRouting(env, domain.zoneId);
+			await deleteEmailRoutingRulesForDomain(env, domain.zoneId, domain.hostname);
 		} catch (err) {
-			console.warn("disableEmailRouting", err);
+			console.warn("deleteEmailRoutingRulesForDomain", err);
 		}
-	}
 
-	if (domain.sendingSubdomainTag) {
-		try {
-			await deleteSendingSubdomain(env, domain.zoneId, domain.sendingSubdomainTag);
-		} catch (err) {
-			console.warn("deleteSendingSubdomain", err);
+		if (domain.routingEnabled) {
+			try {
+				await disableEmailRouting(env, domain.zoneId);
+			} catch (err) {
+				console.warn("disableEmailRouting", err);
+			}
+		}
+
+		if (domain.sendingSubdomainTag) {
+			try {
+				await deleteSendingSubdomain(env, domain.zoneId, domain.sendingSubdomainTag);
+			} catch (err) {
+				console.warn("deleteSendingSubdomain", err);
+			}
 		}
 	}
 

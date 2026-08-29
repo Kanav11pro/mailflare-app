@@ -63,7 +63,7 @@ export function OnboardingClient() {
 			title={step === 1 ? "Connect mail routing" : "Create your first mailbox"}
 			description={
 				step === 1
-					? "Add the Cloudflare domain that will receive and send mail through this workspace."
+					? "Add the custom domain that will receive and send mail through this workspace."
 					: "Choose the mailbox address that should open directly into the inbox."
 			}
 			steps={[
@@ -81,8 +81,7 @@ export function OnboardingClient() {
 				{step === 1 && (
 					<>
 						<p className="rounded-2xl bg-[#eaf1fb] px-4 py-3 text-sm leading-6 text-neutral-700">
-							Your domain must use Cloudflare DNS on the same account as{" "}
-							<code className="no-font-mono text-xs font-semibold text-blue-800">CF_TOKEN</code>.
+							Enter your verified Resend domain (for example: <code className="no-font-mono text-xs font-semibold text-blue-800">mail.studyholic.xyz</code>).
 						</p>
 						<div className="space-y-2">
 							<Label htmlFor="domain">Domain</Label>

@@ -63,7 +63,13 @@ export async function POST(request: Request) {
 			enableRouting: true,
 			enableSending: true,
 		});
-		await ensureEmailRoutingRuleToWorker(env, domain.zoneId, email);
+		if (!domain.zoneId.startsWith("ext_")) {
+			try {
+				await ensureEmailRoutingRuleToWorker(env, domain.zoneId, email);
+			} catch (error) {
+				console.warn("Skipping Cloudflare routing rule for registration:", error);
+			}
+		}
 		const mailboxId = newId("mbx");
 		await db.insert(mailboxes).values({
 			id: mailboxId,

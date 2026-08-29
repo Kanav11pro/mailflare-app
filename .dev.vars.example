@@ -1,6 +1,8 @@
 NEXTJS_ENV=development
-# Preferred: scoped API token.
-# This is an app runtime token, not the Cloudflare deploy/build token.
+# Resend API Key (for custom domains like mail.studyholic.xyz)
+RESEND_API_KEY=re_your_resend_api_key
+
+# Optional: Cloudflare scoped API token (if using Cloudflare DNS/Email Routing)
 CF_TOKEN=your_api_token_with_zone_email_permissions
 # Optional account id. Read by the database backup workflow.
 CF_AID=your_account_id

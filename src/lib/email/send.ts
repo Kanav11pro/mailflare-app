@@ -10,6 +10,8 @@ import { createAuditLog } from "@/lib/mailboxes/audit";
 import { storeMessageAttachments, validateAttachments } from "@/lib/email/attachments";
 import type { AttachmentContent } from "@/lib/email/attachment-types";
 
+import { sendEmailViaResend } from "./resend-client";
+
 export type SendEmailInput = {
 	userId: string;
 	from: string;
@@ -69,33 +71,51 @@ export async function sendEmail(env: CloudflareEnv, input: SendEmailInput): Prom
 	});
 
 	try {
-		const response = await env.EMAIL.send({
-			from: sender.fromAddr,
-			to: input.to,
-			subject: input.subject,
-			html: input.html,
-			text: input.text,
-			attachments: attachments.map((attachment) =>
-				attachment.disposition === "inline" && attachment.contentId
-					? {
-							filename: attachment.filename,
-							type: attachment.type,
-							content: attachment.content,
-							disposition: "inline" as const,
-							contentId: attachment.contentId,
-						}
-					: {
-							filename: attachment.filename,
-							type: attachment.type,
-							content: attachment.content,
-							disposition: "attachment" as const,
-						},
-			),
-		});
+		let providerMessageId = "";
+
+		if (env.RESEND_API_KEY) {
+			const resendResult = await sendEmailViaResend({
+				apiKey: env.RESEND_API_KEY,
+				from: sender.fromAddr,
+				to: input.to,
+				subject: input.subject,
+				html: input.html,
+				text: input.text,
+				attachments,
+			});
+			providerMessageId = resendResult.id;
+		} else if (env.EMAIL) {
+			const response = await env.EMAIL.send({
+				from: sender.fromAddr,
+				to: input.to,
+				subject: input.subject,
+				html: input.html,
+				text: input.text,
+				attachments: attachments.map((attachment) =>
+					attachment.disposition === "inline" && attachment.contentId
+						? {
+								filename: attachment.filename,
+								type: attachment.type,
+								content: attachment.content,
+								disposition: "inline" as const,
+								contentId: attachment.contentId,
+							}
+						: {
+								filename: attachment.filename,
+								type: attachment.type,
+								content: attachment.content,
+								disposition: "attachment" as const,
+							},
+				),
+			});
+			providerMessageId = response.messageId;
+		} else {
+			throw new Error("No outbound email provider configured (RESEND_API_KEY or EMAIL binding)");
+		}
 
 		await db
 			.update(messages)
-			.set({ status: "sent", providerMessageId: response.messageId })
+			.set({ status: "sent", providerMessageId })
 			.where(eq(messages.id, messageId));
 		await db.update(outboundJobs).set({ status: "sent", updatedAt: new Date() }).where(eq(outboundJobs.id, jobId));
 

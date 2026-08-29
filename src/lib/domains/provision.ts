@@ -12,12 +12,23 @@ export async function provisionDomainOnCloudflare(
 	hostname: string,
 	options?: { enableRouting?: boolean; enableSending?: boolean },
 ): Promise<DomainProvisioningResult> {
-	const normalized = hostname.toLowerCase().trim();
-	const zone = await findZoneByHostname(env, normalized);
+	let zone: { id: string; name: string } | null = null;
+	try {
+		zone = await findZoneByHostname(env, normalized);
+	} catch {
+		zone = null;
+	}
+
 	if (!zone) {
-		throw new Error(
-			`Zone not found for "${normalized}". The domain must use Cloudflare DNS on this account.`,
-		);
+		// External domain (e.g. managed on Vercel / Resend)
+		return {
+			hostname: normalized,
+			zone: { id: `ext_${normalized.replace(/[^a-z0-9]/g, "_")}`, name: normalized },
+			routingEnabled: true,
+			sendingEnabled: true,
+			sendingSubdomainTag: null,
+			routingStatus: "external",
+		};
 	}
 
 	const enableRouting = options?.enableRouting ?? true;

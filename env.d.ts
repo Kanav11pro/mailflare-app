@@ -1,6 +1,8 @@
 interface CloudflareEnv {
 	DB: D1Database;
-	EMAIL: SendEmail;
+	EMAIL?: SendEmail;
+	RESEND_API_KEY?: string;
+	RESEND_WEBHOOK_SECRET?: string;
 	BUCKET: R2Bucket;
 	INBOUND_QUEUE: Queue<import("./src/lib/email/inbound").InboundQueueMessage>;
 	OUTBOUND_QUEUE: Queue<import("./src/lib/email/send").OutboundQueueMessage>;
