@@ -36,22 +36,21 @@ export default function DashboardLayout({
               <AdminNav />
             </aside>
             <div className="flex min-h-0 min-w-0 flex-col">
-              <span className="fixed top-6 right-6 flex items-center gap-2">
+              <header className="flex h-16 w-full shrink-0 items-center justify-end gap-3 px-8 text-sm">
                 <button
                   type="button"
                   onClick={() => setCommandPaletteOpen(true)}
-                  className="flex h-9 items-center gap-2 rounded-full border border-neutral-200 bg-white/80 px-3 text-xs text-neutral-500 backdrop-blur-sm hover:bg-neutral-100 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-400"
+                  className="flex h-9 items-center gap-2 rounded-full border border-neutral-200 bg-white px-3 text-xs text-neutral-500 shadow-xs hover:bg-neutral-100 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-400"
                 >
                   <Search className="h-3.5 w-3.5" />
                   <span className="hidden sm:inline">Search</span>
                   <kbd className="rounded bg-neutral-100 px-1 py-0.5 text-[10px] dark:bg-neutral-700">Cmd+K</kbd>
                 </button>
                 <ThemeToggle />
-                <LicenseIndicator />
                 <MailboxSelector />
-              </span>
-              <main className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain rounded-tl-3xl px-6 py-10 scrollbar-gutter-stable lg:px-12">
-                <div className="w-full max-w-3xl">{children}</div>
+              </header>
+              <main className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain rounded-tl-3xl px-6 py-6 scrollbar-gutter-stable lg:px-12">
+                <div className="w-full max-w-4xl">{children}</div>
               </main>
             </div>
             <FloatingComposer />

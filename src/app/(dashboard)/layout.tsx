@@ -50,7 +50,6 @@ export default function DashboardLayout({
                   >
                     <HelpCircle className="h-5 w-5" />
                   </Link>
-                  <LicenseIndicator />
                   <MailboxSelector />
                 </header>
                 <main className="min-h-0 flex-1 overflow-y-auto overscroll-contain rounded-tl-3xl bg-white scrollbar-gutter-stable dark:bg-[#15161b]">
