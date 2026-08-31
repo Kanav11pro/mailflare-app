@@ -8,6 +8,7 @@ import { ProfileForm } from "./profile-form";
 import type { AccountSettingsResponse } from "./types";
 import { loadAccountSettings } from "./utils";
 
+import { MailboxSignatureForm } from "./mailbox-signature-form";
 import { ThemeSettings } from "./theme-settings";
 
 export function AccountSettings() {
@@ -46,11 +47,21 @@ export function AccountSettings() {
 	return (
 		<div className="space-y-8 py-4">
 			<div>
-				<h1 className="text-3xl font-medium text-neutral-900">Account</h1>
-				<p className="mt-1 text-sm text-neutral-500">Manage your account details and sign-in password.</p>
+				<h1 className="text-3xl font-medium text-neutral-900">Account & Mailbox Settings</h1>
+				<p className="mt-1 text-sm text-neutral-500">Manage your account details, signatures, appearance, and sign-in password.</p>
 			</div>
 
 			<ThemeSettings />
+
+			<Card className="rounded-3xl border-0 bg-white px-6">
+				<CardHeader>
+					<CardTitle>Email Signature</CardTitle>
+					<CardDescription>Personalize the signature attached to emails sent from your active mailbox.</CardDescription>
+				</CardHeader>
+				<CardContent className="pb-6">
+					<MailboxSignatureForm />
+				</CardContent>
+			</Card>
 
 			<Card className="rounded-3xl border-0 bg-white px-6">
 				<CardHeader>

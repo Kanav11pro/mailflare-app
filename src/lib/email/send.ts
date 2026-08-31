@@ -21,6 +21,7 @@ export type SendEmailInput = {
 	text?: string;
 	mailboxId: string;
 	attachments?: AttachmentContent[];
+	headers?: Record<string, string>;
 };
 
 export async function sendEmail(env: CloudflareEnv, input: SendEmailInput): Promise<{ messageId: string }> {
@@ -82,6 +83,7 @@ export async function sendEmail(env: CloudflareEnv, input: SendEmailInput): Prom
 				html: input.html,
 				text: input.text,
 				attachments,
+				headers: input.headers,
 			});
 			providerMessageId = resendResult.id;
 		} else if (env.EMAIL) {

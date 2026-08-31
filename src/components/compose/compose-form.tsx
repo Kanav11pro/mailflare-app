@@ -11,7 +11,7 @@ import { useSelectedMailbox } from "@/components/mailbox-provider";
 import { authFetch } from "@/lib/auth/client";
 import { formatEmailAddress, getEmailAddress } from "@/lib/email/address";
 import { cn } from "@/lib/utils";
-import { fetchDraft, formatAttachmentSize } from "./utils";
+import { applyMailboxSignature, fetchDraft, formatAttachmentSize } from "./utils";
 import type { ComposeAttachment } from "./types";
 import { useUndoSend } from "./undo-send-context";
 import { FormattingToolbar } from "./formatting-toolbar";
@@ -40,9 +40,17 @@ export function ComposeForm({
 	const [loadedDraftMailboxId, setLoadedDraftMailboxId] = useState<string | null>(null);
 	const [loadedDraftFrom, setLoadedDraftFrom] = useState<string | null>(null);
 	const [selectedFrom, setSelectedFrom] = useState("");
+	const previousSignatureRef = useRef<string | null>(null);
 	const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const attachmentInput = useRef<HTMLInputElement | null>(null);
 	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+	useEffect(() => {
+		if (loadingDraft || draftIdToLoad) return;
+		const nextSignature = selectedMailbox?.signature ?? null;
+		setText((prev) => applyMailboxSignature(prev, previousSignatureRef.current, nextSignature));
+		previousSignatureRef.current = nextSignature;
+	}, [draftIdToLoad, loadingDraft, selectedMailbox?.id, selectedMailbox?.signature]);
 
 	useEffect(() => {
 		if (!selectedMailbox && mailboxes.length === 1) setSelectedMailbox(mailboxes[0]);

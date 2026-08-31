@@ -88,7 +88,9 @@ export async function POST(request: Request) {
 	try {
 		await ensureMailboxDomainRouting(env, db, { id, domainId: domain.id, localPart, useAllDomains: true });
 	} catch (err) {
-		console.warn("ensureMailboxDomainRouting failed for mailbox:", id, err);
+		await db.delete(mailboxes).where(eq(mailboxes.id, id));
+		const message = err instanceof Error ? err.message : "Failed to create Cloudflare routing rule";
+		return NextResponse.json({ error: message }, { status: 502 });
 	}
 
 	const address = `${localPart}@${domain.hostname}`;

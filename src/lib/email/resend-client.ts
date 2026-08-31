@@ -9,6 +9,7 @@ export interface SendEmailViaResendOptions {
 	text?: string | null;
 	replyTo?: string | string[] | null;
 	attachments?: AttachmentContent[];
+	headers?: Record<string, string>;
 }
 
 export interface ResendSendResponse {
@@ -18,7 +19,7 @@ export interface ResendSendResponse {
 export async function sendEmailViaResend(
 	options: SendEmailViaResendOptions,
 ): Promise<ResendSendResponse> {
-	const { apiKey, from, to, subject, html, text, replyTo, attachments } = options;
+	const { apiKey, from, to, subject, html, text, replyTo, attachments, headers } = options;
 
 	if (!apiKey) {
 		throw new Error("Resend API key is not configured");
@@ -44,6 +45,7 @@ export async function sendEmailViaResend(
 	if (html) payload.html = html;
 	if (text) payload.text = text;
 	if (replyTo) payload.reply_to = Array.isArray(replyTo) ? replyTo : [replyTo];
+	if (headers) payload.headers = headers;
 	if (formattedAttachments.length > 0) payload.attachments = formattedAttachments;
 
 	const response = await fetch("https://api.resend.com/emails", {

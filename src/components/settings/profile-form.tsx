@@ -10,10 +10,10 @@ import type { ProfileFormProps, ProfileFormResponse } from "./types";
 export function ProfileForm({ initialName, initialResetEmail, initialForwardingEmail, canForwardEmail, email }: ProfileFormProps) {
 	const [name, setName] = useState(initialName);
 	const [resetEmail, setResetEmail] = useState(initialResetEmail);
-	const [forwardingEmail, setForwardingEmail] = useState(initialForwardingEmail);
+	const [forwardingEmail, setForwardingEmail] = useState(initialForwardingEmail ?? "");
 	const [savedName, setSavedName] = useState(initialName);
 	const [savedResetEmail, setSavedResetEmail] = useState(initialResetEmail);
-	const [savedForwardingEmail, setSavedForwardingEmail] = useState(initialForwardingEmail);
+	const [savedForwardingEmail, setSavedForwardingEmail] = useState(initialForwardingEmail ?? "");
 	const [status, setStatus] = useState<string | null>(null);
 	const [loading, setLoading] = useState(false);
 	const hasChanges =

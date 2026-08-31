@@ -9,7 +9,7 @@ import {
 import { getZoneLookupCandidates } from "@/lib/domains/utils";
 export type { CfDnsRecord } from "@/lib/cloudflare-api.types";
 
-async function cfRequest<T>(
+export async function cfRequest<T>(
 	env: CloudflareEnv,
 	path: string,
 	init?: RequestInit,
