@@ -31,9 +31,18 @@ export async function fetchMailboxOptions(force = false): Promise<MailboxOption[
 	const requestGeneration = cacheGeneration;
 	mailboxesRequestSessionToken = sessionToken;
 	mailboxesRequest = authFetch("/api/mailboxes")
-		.then((res) => res.json())
+		.then(async (res) => {
+			if (!res.ok) return { mailboxes: [] };
+			const text = await res.text();
+			if (!text) return { mailboxes: [] };
+			try {
+				return JSON.parse(text) as { mailboxes?: MailboxOption[] };
+			} catch {
+				return { mailboxes: [] };
+			}
+		})
 		.then((data) => {
-			const items = ((data as { mailboxes?: MailboxOption[] }).mailboxes ?? []).map((m) => ({
+			const items = (data.mailboxes ?? []).map((m) => ({
 				id: m.id,
 				localPart: m.localPart,
 				hostname: m.hostname,
@@ -54,6 +63,7 @@ export async function fetchMailboxOptions(force = false): Promise<MailboxOption[
 			}
 			return items;
 		})
+		.catch(() => [] as MailboxOption[])
 		.finally(() => {
 			if (requestGeneration === cacheGeneration) {
 				mailboxesRequest = null;

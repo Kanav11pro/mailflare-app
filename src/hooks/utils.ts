@@ -109,17 +109,24 @@ export async function fetchMessageCounts(mailboxId?: string | null, force = fals
 		const params = new URLSearchParams();
 		if (mailboxId) params.set("mailboxId", mailboxId);
 		const query = params.toString();
-		const res = await authFetch(`/api/messages/counts${query ? `?${query}` : ""}`);
-		const data = (await res.json()) as { counts?: MessageCounts };
-		const counts = data.counts;
-		if (
-			counts &&
-			requestGeneration === messageCacheGeneration &&
-			countsGeneration === messageCountsGeneration
-		) {
-			messageCountsCache.set(key, counts);
+		try {
+			const res = await authFetch(`/api/messages/counts${query ? `?${query}` : ""}`);
+			if (!res.ok) return undefined;
+			const text = await res.text();
+			if (!text) return undefined;
+			const data = JSON.parse(text) as { counts?: MessageCounts };
+			const counts = data.counts;
+			if (
+				counts &&
+				requestGeneration === messageCacheGeneration &&
+				countsGeneration === messageCountsGeneration
+			) {
+				messageCountsCache.set(key, counts);
+			}
+			return counts;
+		} catch {
+			return undefined;
 		}
-		return counts;
 	})().finally(() => {
 		if (messageCountsRequests.get(key) === request) {
 			messageCountsRequests.delete(key);
@@ -137,14 +144,24 @@ export async function fetchMessageList(params: URLSearchParams, force = false): 
 
 	const requestGeneration = messageCacheGeneration;
 	const request = authFetch(`/api/messages?${key}`)
-		.then((res) => res.json())
+		.then(async (res) => {
+			if (!res.ok) return {};
+			const text = await res.text();
+			if (!text) return {};
+			try {
+				return JSON.parse(text) as MessageListResponse;
+			} catch {
+				return {};
+			}
+		})
 		.then((data) => {
-			const response = data as MessageListResponse;
+			const response = (data ?? {}) as MessageListResponse;
 			if (requestGeneration === messageCacheGeneration) {
 				messageListCache.set(key, response);
 			}
 			return response;
 		})
+		.catch(() => ({}) as MessageListResponse)
 		.finally(() => {
 			if (requestGeneration === messageCacheGeneration) {
 				messageListRequests.delete(key);
