@@ -10,6 +10,7 @@ import {
   ScrollView,
   StyleSheet,
   Alert,
+  Linking,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Flame, Lock, Mail, Server, ChevronDown, ChevronUp, AlertCircle, ShieldCheck } from "lucide-react-native";
@@ -329,6 +330,24 @@ export const LoginScreen: React.FC = () => {
               </>
             )}
           </View>
+
+          {/* Need Account Footer */}
+          {!mfaChallenge && (
+            <View style={{ alignItems: "center", marginTop: 24 }}>
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  Linking.openURL("https://mailflare-app.cbforin.workers.dev/onboarding");
+                }}
+              >
+                <Text style={{ color: theme.textMuted, fontSize: 13, fontWeight: "500" }}>
+                  New to Mailflare?{" "}
+                  <Text style={{ color: theme.primary, fontWeight: "700" }}>Set up domain on Web</Text>
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
