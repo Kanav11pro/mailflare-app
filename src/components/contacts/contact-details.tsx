@@ -11,11 +11,11 @@ import {
 	DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { ContactAvatarForm } from "./contact-avatar-form";
 import { Label } from "@/components/ui/label";
 import type { ContactDetailsRecord, ContactDetailsTriggerProps } from "./contact-details-types";
 import {
 	fetchContactDetails,
-	getContactInitial,
 	updateContactName,
 } from "./contact-details-utils";
 
@@ -97,14 +97,14 @@ export function ContactDetailsTrigger({
 						<DialogDescription>Update how this contact appears in your mailbox.</DialogDescription>
 					</DialogHeader>
 					<div className="space-y-5">
-						<div className="flex items-center gap-4">
-							<div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-blue-100 text-lg font-semibold text-blue-700">
-								{getContactInitial(shownName, address)}
-							</div>
-							<div className="min-w-0">
-								<p className="truncate font-medium text-neutral-900">{shownName}</p>
-								<p className="truncate text-sm text-neutral-500">{contact?.email ?? address}</p>
-							</div>
+						<div className="flex flex-col items-start gap-4">
+							<ContactAvatarForm
+								mailboxId={mailboxId}
+								address={address}
+								name={shownName}
+								hasAvatar={contact?.hasAvatar ?? false}
+								onAvatarChange={(hasAvatar) => setContact((current) => current ? { ...current, hasAvatar } : current)}
+							/>
 						</div>
 						<div className="space-y-2">
 							<Label htmlFor="contact-display-name">Name</Label>
@@ -113,6 +113,14 @@ export function ContactDetailsTrigger({
 								value={displayName}
 								onChange={(event) => setDisplayName(event.target.value)}
 								disabled={loading || saving}
+							/>
+						</div>
+						<div className="space-y-2">
+							<Label htmlFor="contact-email">Email</Label>
+							<Input
+								id="contact-email"
+								value={contact?.email ?? address}
+								disabled
 							/>
 						</div>
 						<div className="grid gap-3 rounded-lg bg-neutral-50 p-3 text-sm sm:grid-cols-2">

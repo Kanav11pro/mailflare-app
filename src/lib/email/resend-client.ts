@@ -4,6 +4,8 @@ export interface SendEmailViaResendOptions {
 	apiKey: string;
 	from: string;
 	to: string | string[];
+	cc?: string | string[];
+	bcc?: string | string[];
 	subject: string;
 	html?: string | null;
 	text?: string | null;
@@ -19,14 +21,16 @@ export interface ResendSendResponse {
 export async function sendEmailViaResend(
 	options: SendEmailViaResendOptions,
 ): Promise<ResendSendResponse> {
-	const { apiKey, from, to, subject, html, text, replyTo, attachments, headers } = options;
+	const { apiKey, from, to, cc, bcc, subject, html, text, replyTo, attachments, headers } = options;
 
 	if (!apiKey) {
 		throw new Error("Resend API key is not configured");
 	}
 
 	const formattedAttachments = (attachments ?? []).map((att) => {
-		const base64Content = Buffer.from(att.content).toString("base64");
+		const base64Content = Buffer.from(
+			att.content instanceof Uint8Array ? att.content : new Uint8Array(att.content),
+		).toString("base64");
 		return {
 			filename: att.filename,
 			content: base64Content,
@@ -42,6 +46,12 @@ export async function sendEmailViaResend(
 		subject,
 	};
 
+	if (cc && (Array.isArray(cc) ? cc.length > 0 : cc)) {
+		payload.cc = Array.isArray(cc) ? cc : [cc];
+	}
+	if (bcc && (Array.isArray(bcc) ? bcc.length > 0 : bcc)) {
+		payload.bcc = Array.isArray(bcc) ? bcc : [bcc];
+	}
 	if (html) payload.html = html;
 	if (text) payload.text = text;
 	if (replyTo) payload.reply_to = Array.isArray(replyTo) ? replyTo : [replyTo];

@@ -1,4 +1,9 @@
-import type { CfDnsRecord, CfEmailRoutingRule, CfResponse } from "@/lib/cloudflare-api.types";
+import type {
+	CfDnsRecord,
+	CfEmailRoutingRule,
+	CfResponse,
+	CfSendingSubdomain,
+} from "@/lib/cloudflare-api.types";
 import {
 	formatCloudflareError,
 	getCloudflareAuth,
@@ -90,7 +95,7 @@ export async function listSendingSubdomains(
 	env: CloudflareEnv,
 	zoneId: string,
 ) {
-	return cfRequest<{ tag: string; name: string; enabled: boolean }[]>(
+	return cfRequest<CfSendingSubdomain[]>(
 		env,
 		`/zones/${zoneId}/email/sending/subdomains`,
 	);
@@ -168,7 +173,7 @@ export async function createEmailRoutingRuleToWorker(
 	zoneId: string,
 	address: string,
 ) {
-	const workerName = getEmailWorkerName(env);
+	const workerName = getEmailWorkerName();
 	return cfRequest<CfEmailRoutingRule>(
 		env,
 		`/zones/${zoneId}/email/routing/rules`,
@@ -184,25 +189,63 @@ export async function createEmailRoutingRuleToWorker(
 	);
 }
 
+function isWorkerRouteForAddress(
+	rule: CfEmailRoutingRule,
+	normalizedAddress: string,
+	workerName: string,
+): boolean {
+	const routesAddress = rule.matchers?.some(
+		(matcher) => matcher.type === "literal" && matcher.field === "to" && matcher.value?.toLowerCase() === normalizedAddress,
+	);
+	const sendsToWorker = rule.actions?.some(
+		(action) => action.type === "worker" && (action.value?.length ? action.value.includes(workerName) : true),
+	);
+	return Boolean(routesAddress && sendsToWorker);
+}
+
 export async function ensureEmailRoutingRuleToWorker(
 	env: CloudflareEnv,
 	zoneId: string,
 	address: string,
 ) {
+	if (zoneId === "manual") return;
 	const normalized = address.toLowerCase();
-	const workerName = getEmailWorkerName(env);
+	const workerName = getEmailWorkerName();
 	const rules = await listEmailRoutingRules(env, zoneId);
-	const existing = rules.find((rule) => {
-		const routesAddress = rule.matchers?.some(
-			(matcher) => matcher.type === "literal" && matcher.field === "to" && matcher.value?.toLowerCase() === normalized,
-		);
-		const sendsToWorker = rule.actions?.some(
-			(action) => action.type === "worker" && (action.value?.length ? action.value.includes(workerName) : true),
-		);
-		return rule.enabled && routesAddress && sendsToWorker;
-	});
+	const existing = rules.find((rule) => isWorkerRouteForAddress(rule, normalized, workerName));
 
-	if (existing) return existing;
+	if (existing?.enabled) return existing;
+	if (existing?.id) {
+		return cfRequest<CfEmailRoutingRule>(
+			env,
+			`/zones/${zoneId}/email/routing/rules/${existing.id}`,
+			{
+				method: "PUT",
+				body: JSON.stringify({
+					actions: [{ type: "worker", value: [workerName] }],
+					enabled: true,
+					matchers: [{ type: "literal", field: "to", value: normalized }],
+					name: existing.name ?? `Route ${normalized} to ${workerName}`,
+					priority: existing.priority,
+				}),
+			},
+		);
+	}
 
 	return createEmailRoutingRuleToWorker(env, zoneId, normalized);
+}
+
+export async function deleteEmailRoutingRuleForAddress(
+	env: CloudflareEnv,
+	zoneId: string,
+	address: string,
+): Promise<boolean> {
+	if (zoneId === "manual") return false;
+	const normalized = address.toLowerCase();
+	const workerName = getEmailWorkerName();
+	const rules = await listEmailRoutingRules(env, zoneId);
+	const existing = rules.find((rule) => isWorkerRouteForAddress(rule, normalized, workerName));
+	if (!existing?.id) return false;
+	await deleteEmailRoutingRule(env, zoneId, existing.id);
+	return true;
 }

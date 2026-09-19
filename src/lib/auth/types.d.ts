@@ -10,6 +10,8 @@ export type SessionUser = {
 	role: UserRole;
 	disabled: boolean;
 	canManageMailboxes: boolean;
+	keyboardShortcutsEnabled: boolean;
+	spamProtectionEnabled: boolean;
 	createdByUserId: string | null;
 	createdAt: Date;
 };

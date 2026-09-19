@@ -2,10 +2,11 @@ import { NextResponse } from "next/server";
 import { and, eq } from "drizzle-orm";
 import { getEnv } from "@/lib/cloudflare";
 import { getDb } from "@/db";
-import { domains, mailboxes, users } from "@/db/schema";
+import { domains, mailboxAliases, mailboxes, users } from "@/db/schema";
 import { requireUser } from "@/lib/auth/cookies";
 import { newId } from "@/lib/ids";
 import { getLicenseEntitlements } from "@/lib/licenses/service";
+import { tracksAccountIdentity } from "@/lib/profile/identity-utils";
 import { mailboxSchema } from "@/lib/validators";
 import { ensureMailboxDomainRouting, getMailboxDomainAddresses } from "@/lib/mailboxes/domain-addresses";
 import { ensurePersonalMailbox } from "./utils";
@@ -19,6 +20,9 @@ export async function GET(request: Request) {
 	return NextResponse.json({
 		mailboxes: await Promise.all(rows.map(async (mailbox) => ({
 			...mailbox,
+			...(mailbox.userId === user.id && tracksAccountIdentity(mailbox, user.email)
+				? { displayName: user.name, hasAvatar: !!user.avatarKey }
+				: {}),
 			senderAddresses: await getMailboxDomainAddresses(db, mailbox),
 		}))),
 		canCreateShared: user.role === "admin" && entitlements.canManageAccounts,
@@ -74,6 +78,14 @@ export async function POST(request: Request) {
 		.limit(1);
 	if (existing) {
 		return NextResponse.json({ error: "Mailbox already exists" }, { status: 409 });
+	}
+	const [existingAlias] = await db
+		.select({ id: mailboxAliases.id })
+		.from(mailboxAliases)
+		.where(and(eq(mailboxAliases.domainId, domain.id), eq(mailboxAliases.localPart, localPart)))
+		.limit(1);
+	if (existingAlias) {
+		return NextResponse.json({ error: "An alias already uses this address" }, { status: 409 });
 	}
 
 	const id = newId("mbx");

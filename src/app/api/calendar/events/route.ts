@@ -31,8 +31,7 @@ export async function POST(request: Request) {
 	await getDb(env).insert(calendarEvents).values(event);
 	if (attendees.length && input.mailboxId) {
 		const calendarFile = createCalendarInvitation({ ...event, uid: event.id });
-		const contentBuffer = calendarFile.buffer.slice(calendarFile.byteOffset, calendarFile.byteOffset + calendarFile.byteLength) as ArrayBuffer;
-		await Promise.all(attendees.map((to) => sendEmail(env, { userId: user.id, mailboxId: input.mailboxId!, from: input.from ?? "", to, subject: `Invitation: ${event.title}`, text: event.description || `You are invited to ${event.title}.`, attachments: [{ filename: "invite.ics", type: "text/calendar; charset=utf-8", content: contentBuffer }] })));
+		await Promise.all(attendees.map((to) => sendEmail(env, { userId: user.id, mailboxId: input.mailboxId!, from: input.from ?? "", to, subject: `Invitation: ${event.title}`, text: event.description || `You are invited to ${event.title}.`, attachments: [{ filename: "invite.ics", type: "text/calendar; charset=utf-8", content: calendarFile }] })));
 	}
 	return NextResponse.json({ event });
 }

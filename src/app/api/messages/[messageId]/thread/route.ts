@@ -1,78 +1,85 @@
+import { and, asc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { and, desc, eq, or, asc } from "drizzle-orm";
-import { getEnv } from "@/lib/cloudflare";
 import { getDb } from "@/db";
 import { messages } from "@/db/schema";
-import { requireUser } from "@/lib/auth/cookies";
+import { getCurrentUser } from "@/lib/auth/cookies";
+import { getEnv } from "@/lib/cloudflare";
+import { getMessageContactNames } from "@/lib/contacts/service";
+import { listMessageAttachments } from "@/lib/email/attachments";
+import { getUnsubscribeUrlFromRawR2Key } from "@/lib/email/unsubscribe";
+import { getMailboxAccessLevel } from "@/lib/mailboxes/access";
 
-type Params = { params: Promise<{ messageId: string }> };
+type RouteParams = {
+	params: Promise<{ messageId: string }>;
+};
 
-export async function GET(request: Request, { params }: Params) {
-	const { messageId } = await params;
+export async function GET(request: Request, { params }: RouteParams) {
 	const env = getEnv();
-	const user = await requireUser(env, request);
+	const user = await getCurrentUser(env, request);
+	if (!user) {
+		return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+	}
+
+	const { messageId } = await params;
 	const db = getDb(env);
 
-	// 1. Fetch current message
 	const [targetMessage] = await db
 		.select()
 		.from(messages)
-		.where(and(eq(messages.id, messageId), eq(messages.userId, user.id)))
+		.where(eq(messages.id, messageId))
 		.limit(1);
 
-	if (!targetMessage) {
+	if (!targetMessage?.mailboxId) {
 		return NextResponse.json({ error: "Message not found" }, { status: 404 });
 	}
 
-	// 2. Normalize subject to group replies: "Re: Hello" -> "Hello", "Fwd: Hello" -> "Hello"
-	const normalizedSubject = targetMessage.subject
-		? targetMessage.subject.replace(/^(re|fwd|fw):\s*/i, "").trim().toLowerCase()
-		: "";
-
-	// 3. Find all messages sharing the same threadId, or having the same normalized subject and same mailbox
-	let threadMessages: (typeof messages.$inferSelect)[] = [];
-
-	if (targetMessage.threadId) {
-		threadMessages = await db
-			.select()
-			.from(messages)
-			.where(
-				and(
-					eq(messages.userId, user.id),
-					or(
-						eq(messages.threadId, targetMessage.threadId),
-						targetMessage.mailboxId ? eq(messages.mailboxId, targetMessage.mailboxId) : undefined,
-					),
-				),
-			)
-			.orderBy(asc(messages.createdAt));
-	} else {
-		threadMessages = await db
-			.select()
-			.from(messages)
-			.where(
-				and(
-					eq(messages.userId, user.id),
-					targetMessage.mailboxId ? eq(messages.mailboxId, targetMessage.mailboxId) : undefined,
-				),
-			)
-			.orderBy(asc(messages.createdAt));
+	const access = await getMailboxAccessLevel(db, user, targetMessage.mailboxId);
+	if (!access?.canRead) {
+		return NextResponse.json({ error: "Access denied" }, { status: 403 });
 	}
 
-	// Filter by thread similarity
-	const matched = threadMessages.filter((m) => {
-		if (m.id === targetMessage.id) return true;
-		if (m.threadId && targetMessage.threadId && m.threadId === targetMessage.threadId) return true;
-		if (normalizedSubject && m.subject) {
-			const sub = m.subject.replace(/^(re|fwd|fw):\s*/i, "").trim().toLowerCase();
-			return sub === normalizedSubject;
+	// If no threadId or thread is singular, return just this message
+	const threadId = targetMessage.threadId;
+	let threadMessages = [targetMessage];
+
+	if (threadId) {
+		const allInThread = await db
+			.select()
+			.from(messages)
+			.where(
+				and(
+					eq(messages.mailboxId, targetMessage.mailboxId),
+					eq(messages.threadId, threadId),
+				),
+			)
+			.orderBy(asc(messages.createdAt));
+
+		if (allInThread.length > 0) {
+			threadMessages = allInThread;
 		}
-		return false;
-	});
+	}
+
+	// Hydrate each message with contacts, attachments, and unsubscribe info
+	const hydrated = await Promise.all(
+		threadMessages.map(async (msg) => {
+			const [contactNames, attachments, unsubscribeUrl] = await Promise.all([
+				getMessageContactNames(env, msg.userId, msg.fromAddr, msg.toAddr),
+				listMessageAttachments(env, msg.id),
+				getUnsubscribeUrlFromRawR2Key(env, msg.rawR2Key),
+			]);
+
+			return {
+				message: { ...msg, ...contactNames },
+				body: msg,
+				attachments,
+				unsubscribeUrl,
+			};
+		}),
+	);
 
 	return NextResponse.json({
-		messages: matched.length > 0 ? matched : [targetMessage],
-		threadId: targetMessage.threadId || targetMessage.id,
-		count: matched.length > 0 ? matched.length : 1,
+		threadId: threadId || targetMessage.id,
+		count: hydrated.length,
+		messages: hydrated,
 	});
 }

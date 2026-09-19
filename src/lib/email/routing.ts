@@ -1,9 +1,9 @@
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, asc, desc } from "drizzle-orm";
 import type { AppDatabase } from "@/db";
-import { domains, folders, mailboxes, routingRules } from "@/db/schema";
+import { domains, folders, mailboxAliases, mailboxes, routingRules, maskedAliases } from "@/db/schema";
 import { getEmailAddress } from "@/lib/email/address";
 import { getMailboxDomainAddresses } from "@/lib/mailboxes/domain-addresses";
-import { parseAddress } from "@/lib/utils";
+import { normalizeRecipientLocalPart, parseRecipientAddress } from "@/lib/email/recipient-address";
 
 export type ResolvedMailbox = {
 	mailboxId: string;
@@ -19,6 +19,11 @@ export type RoutingDecision = {
 	action: "store" | "forward" | "reject";
 	mailbox?: ResolvedMailbox;
 	forwardTo?: string;
+	/** Forward rules drop the message unless the rule also keeps a copy in the mailbox. */
+	keepCopy?: boolean;
+	rejectReason?: string;
+	/** Set when a domain-scope rule produced this decision, so the caller can record a match. */
+	ruleId?: string;
 };
 
 export type InboxRuleDestination = {
@@ -26,11 +31,31 @@ export type InboxRuleDestination = {
 	folderId: string | null;
 };
 
+type RuleRow = typeof routingRules.$inferSelect;
+
+export type RuleMatchInput = {
+	toAddress: string;
+	fromAddress?: string | null;
+	subject?: string | null;
+	content?: string | null;
+};
+
+/**
+ * Resolves what should happen to an inbound message addressed to `toAddress`.
+ *
+ * Domain-scope rules are evaluated in three phases so that a broad catch-all can never
+ * shadow a real mailbox:
+ *   1. `reject` rules (block lists) — highest precedence, evaluated before delivery.
+ *   2. exact mailbox, then multi-domain mailbox aliases.
+ *   3. remaining `forward` / `store` rules — the catch-all fallback.
+ * Within each phase rules run by descending priority, then oldest first.
+ */
 export async function resolveInboundAddress(
 	db: AppDatabase,
 	toAddress: string,
+	fromAddress?: string | null,
 ): Promise<RoutingDecision | null> {
-	const parsed = parseAddress(toAddress);
+	const parsed = parseRecipientAddress(toAddress);
 	if (!parsed) return null;
 
 	const [domain] = await db
@@ -41,38 +66,201 @@ export async function resolveInboundAddress(
 
 	if (!domain) return null;
 
-	const [exactMailbox] = await db
+	const domainRules = await listDomainRules(db, domain.id);
+	const matchInput: RuleMatchInput = { toAddress, fromAddress };
+
+	// Phase 1 — block rules run before any mailbox lookup so they can block a sender
+	// even when the recipient is a real mailbox.
+	for (const rule of domainRules) {
+		if (rule.action !== "reject") continue;
+		if (!matchesRule(rule, matchInput)) continue;
+		return {
+			action: "reject",
+			rejectReason: rule.rejectReason?.trim() || "Message rejected by routing rule",
+			ruleId: rule.id,
+		};
+	}
+
+	// Phase 2 — a real mailbox or active masked alias always wins over a catch-all.
+	const maskedRow = await resolveMaskedAlias(db, domain.id, parsed.localPart);
+	if (maskedRow) {
+		const { maskedAlias, mailbox: parentMailbox } = maskedRow;
+		const isExpired = maskedAlias.expiresAt && new Date(maskedAlias.expiresAt).getTime() < Date.now();
+		if (maskedAlias.status === "killed" || isExpired) {
+			await db
+				.update(maskedAliases)
+				.set({ blockedCount: maskedAlias.blockedCount + 1 })
+				.where(eq(maskedAliases.id, maskedAlias.id));
+			return {
+				action: "reject",
+				rejectReason: isExpired ? "Masked burner alias has expired" : "Masked alias has been disabled",
+			};
+		}
+		if (maskedAlias.status === "paused") {
+			await db
+				.update(maskedAliases)
+				.set({ blockedCount: maskedAlias.blockedCount + 1 })
+				.where(eq(maskedAliases.id, maskedAlias.id));
+			return {
+				action: "reject",
+				rejectReason: "Masked alias is temporarily paused",
+			};
+		}
+
+		await db
+			.update(maskedAliases)
+			.set({
+				forwardCount: maskedAlias.forwardCount + 1,
+				lastReceivedAt: new Date(),
+			})
+			.where(eq(maskedAliases.id, maskedAlias.id));
+
+		return {
+			action: "store",
+			mailbox: toResolvedMailbox(parentMailbox, domain.id, domain.hostname),
+		};
+	}
+
+	const exactMailboxes = await db
 		.select()
 		.from(mailboxes)
-		.where(and(eq(mailboxes.domainId, domain.id), eq(mailboxes.localPart, parsed.local)))
-		.limit(1);
-	const mailbox = exactMailbox ?? await resolveMailboxDomainAlias(db, domain.hostname, parsed.local);
+		.where(and(eq(mailboxes.domainId, domain.id), eq(mailboxes.disabled, false)));
+	const exactMailbox = exactMailboxes.find(
+		(mailbox) => normalizeRecipientLocalPart(mailbox.localPart) === parsed.localPart,
+	);
+	const mailbox = exactMailbox
+		?? await resolveMailboxAlias(db, domain.id, parsed.localPart)
+		?? await resolveMailboxDomainAlias(db, parsed.localPart, parsed.normalizedAddress);
 
+	if (mailbox) {
+		return {
+			action: "store",
+			mailbox: toResolvedMailbox(mailbox, domain.id, domain.hostname),
+		};
+	}
+
+	// Phase 3 — catch-all and forwarding fallbacks.
+	for (const rule of domainRules) {
+		if (rule.action !== "forward" && rule.action !== "store") continue;
+		if (!matchesRule(rule, matchInput)) continue;
+
+		if (rule.action === "forward") {
+			const forwardTo = rule.forwardTo?.trim();
+			if (!forwardTo) continue;
+			const catchAll = rule.mailboxId ? await getRuleMailbox(db, rule.mailboxId, domain.id) : null;
+			return {
+				action: "forward",
+				forwardTo,
+				keepCopy: rule.keepCopy && !!catchAll,
+				mailbox: catchAll ?? undefined,
+				ruleId: rule.id,
+			};
+		}
+
+		if (!rule.mailboxId) continue;
+		const catchAll = await getRuleMailbox(db, rule.mailboxId, domain.id);
+		if (!catchAll) continue;
+		return { action: "store", mailbox: catchAll, ruleId: rule.id };
+	}
+
+	return null;
+}
+
+async function listDomainRules(db: AppDatabase, domainId: string): Promise<RuleRow[]> {
+	return db
+		.select()
+		.from(routingRules)
+		.where(
+			and(
+				eq(routingRules.domainId, domainId),
+				eq(routingRules.scope, "domain"),
+				eq(routingRules.enabled, true),
+			),
+		)
+		.orderBy(desc(routingRules.priority), asc(routingRules.createdAt));
+}
+
+async function getRuleMailbox(
+	db: AppDatabase,
+	mailboxId: string,
+	domainId: string,
+): Promise<ResolvedMailbox | null> {
+	const [mailbox] = await db
+		.select()
+		.from(mailboxes)
+		.where(and(eq(mailboxes.id, mailboxId), eq(mailboxes.disabled, false)))
+		.limit(1);
 	if (!mailbox) return null;
 
+	const [domain] = await db
+		.select({ hostname: domains.hostname })
+		.from(domains)
+		.where(eq(domains.id, domainId))
+		.limit(1);
+	if (!domain) return null;
+
+	return toResolvedMailbox(mailbox, domainId, domain.hostname);
+}
+
+function toResolvedMailbox(
+	mailbox: typeof mailboxes.$inferSelect,
+	domainId: string,
+	hostname: string,
+): ResolvedMailbox {
 	return {
-		action: "store",
-		mailbox: {
-			mailboxId: mailbox.id,
-			folderId: null,
-			userId: mailbox.userId,
-			domainId: domain.id,
-			localPart: mailbox.localPart,
-			hostname: domain.hostname,
-			displayName: mailbox.displayName,
-		},
+		mailboxId: mailbox.id,
+		folderId: null,
+		userId: mailbox.userId,
+		domainId,
+		localPart: mailbox.localPart,
+		hostname,
+		displayName: mailbox.displayName,
 	};
 }
 
-async function resolveMailboxDomainAlias(db: AppDatabase, hostname: string, localPart: string) {
+/** Records that a domain rule fired, for the "last matched" column in the routing UI. */
+export async function recordRuleMatch(db: AppDatabase, ruleId: string): Promise<void> {
+	const [rule] = await db
+		.select({ matchCount: routingRules.matchCount })
+		.from(routingRules)
+		.where(eq(routingRules.id, ruleId))
+		.limit(1);
+	if (!rule) return;
+	await db
+		.update(routingRules)
+		.set({ matchCount: rule.matchCount + 1, lastMatchedAt: new Date() })
+		.where(eq(routingRules.id, ruleId));
+}
+
+async function resolveMailboxAlias(db: AppDatabase, domainId: string, localPart: string) {
+	const rows = await db
+		.select({ mailbox: mailboxes, aliasLocalPart: mailboxAliases.localPart })
+		.from(mailboxAliases)
+		.innerJoin(mailboxes, eq(mailboxAliases.mailboxId, mailboxes.id))
+		.where(and(
+			eq(mailboxAliases.domainId, domainId),
+			eq(mailboxes.disabled, false),
+		));
+	const row = rows.find(
+		(item) => normalizeRecipientLocalPart(item.aliasLocalPart) === localPart,
+	);
+	return row?.mailbox ?? null;
+}
+
+async function resolveMailboxDomainAlias(
+	db: AppDatabase,
+	localPart: string,
+	normalizedAddress: string,
+) {
 	const candidates = await db
 		.select()
 		.from(mailboxes)
-		.where(and(eq(mailboxes.localPart, localPart), eq(mailboxes.useAllDomains, true), eq(mailboxes.disabled, false)));
+		.where(and(eq(mailboxes.useAllDomains, true), eq(mailboxes.disabled, false)));
 
 	for (const mailbox of candidates) {
+		if (normalizeRecipientLocalPart(mailbox.localPart) !== localPart) continue;
 		const addresses = await getMailboxDomainAddresses(db, mailbox);
-		if (addresses.includes(`${localPart}@${hostname}`.toLowerCase())) {
+		if (addresses.some((address) => parseRecipientAddress(address)?.normalizedAddress === normalizedAddress)) {
 			return mailbox;
 		}
 	}
@@ -92,11 +280,17 @@ export async function resolveInboxRuleDestination(
 	const rules = await db
 		.select()
 		.from(routingRules)
-		.where(eq(routingRules.mailboxId, input.mailboxId))
-		.orderBy(desc(routingRules.priority));
+		.where(
+			and(
+				eq(routingRules.mailboxId, input.mailboxId),
+				eq(routingRules.scope, "mailbox"),
+				eq(routingRules.enabled, true),
+			),
+		)
+		.orderBy(desc(routingRules.priority), asc(routingRules.createdAt));
 
 	for (const rule of rules) {
-		if (!matchesInboxRule(rule, input)) continue;
+		if (!matchesRule(rule, input)) continue;
 
 		if (rule.action === "spam" || rule.action === "trash") {
 			return { status: rule.action, folderId: null };
@@ -111,50 +305,74 @@ export async function resolveInboxRuleDestination(
 	return { status: "received", folderId: null };
 }
 
-function matchesInboxRule(
-	rule: {
-		pattern: string;
-		matchField?: "email" | "content" | "title" | string;
-		matchOperator?: "contains" | "exact" | string;
-		matchValue?: string | null;
-	},
-	input: {
-		toAddress: string;
-		fromAddress?: string | null;
-		subject?: string | null;
-		content?: string | null;
-	},
-): boolean {
+type MatchableRule = {
+	pattern: string;
+	matchField?: string | null;
+	matchOperator?: string | null;
+	matchValue?: string | null;
+};
+
+export function matchesRule(rule: MatchableRule, input: RuleMatchInput): boolean {
 	const rawValue = (rule.matchValue || rule.pattern).trim();
+	// "*" is the catch-all pattern used by catch-all and block-everything rules.
+	if (rawValue === "*") return true;
 	const normalizedRuleValue = normalizeRuleComparisonValue(rule.matchField, rawValue);
 	if (!normalizedRuleValue) return false;
-	if (normalizedRuleValue === "*") return true;
 
 	const values = getRuleFieldValues(rule.matchField, input);
 	return values.some((value) => {
+		if (!value) return false;
 		const normalizedValue = normalizeRuleComparisonValue(rule.matchField, value);
-		if (rule.matchOperator === "exact") return normalizedValue === normalizedRuleValue;
-		return normalizedValue.includes(normalizedRuleValue);
+		if (!normalizedValue) return false;
+		return compareRuleValue(rule.matchOperator, normalizedValue, normalizedRuleValue, rawValue);
 	});
 }
 
-function normalizeRuleComparisonValue(field: string | undefined, value: string | null | undefined): string {
-	if (!value) return "";
-	if (field !== "email") return value.toLowerCase();
-	return getEmailAddress(value).trim().toLowerCase();
+function compareRuleValue(
+	operator: string | null | undefined,
+	value: string,
+	ruleValue: string,
+	rawRuleValue: string,
+): boolean {
+	switch (operator) {
+		case "exact":
+			return value === ruleValue;
+		case "starts_with":
+			return value.startsWith(ruleValue);
+		case "ends_with":
+			return value.endsWith(ruleValue);
+		case "regex":
+			return matchesRegex(value, rawRuleValue);
+		default:
+			return value.includes(ruleValue);
+	}
 }
 
-function getRuleFieldValues(
-	field: string | undefined,
-	input: {
-		toAddress: string;
-		fromAddress?: string | null;
-		subject?: string | null;
-		content?: string | null;
-	},
-) {
+/**
+ * Rule patterns are operator-authored but still untrusted enough to warrant guarding:
+ * an invalid pattern must not throw and take down inbound processing.
+ */
+function matchesRegex(value: string, pattern: string): boolean {
+	try {
+		return new RegExp(pattern, "i").test(value);
+	} catch {
+		return false;
+	}
+}
+
+function normalizeRuleComparisonValue(field: string | null | undefined, value: string | null | undefined): string {
+	if (!value) return "";
+	if (field === "email" || field === "sender" || field === "recipient") {
+		return getEmailAddress(value).trim().toLowerCase();
+	}
+	return value.toLowerCase();
+}
+
+function getRuleFieldValues(field: string | null | undefined, input: RuleMatchInput) {
 	if (field === "content") return [input.content];
 	if (field === "title") return [input.subject];
+	if (field === "sender") return [input.fromAddress];
+	if (field === "recipient") return [input.toAddress];
 	return [input.fromAddress, input.toAddress];
 }
 
@@ -169,4 +387,27 @@ async function getRuleFolderId(
 		.where(and(eq(folders.id, folderId), eq(folders.mailboxId, mailboxId)))
 		.limit(1);
 	return folder?.id ?? null;
+}
+
+async function resolveMaskedAlias(
+	db: AppDatabase,
+	domainId: string,
+	localPart: string,
+) {
+	const [row] = await db
+		.select({
+			maskedAlias: maskedAliases,
+			mailbox: mailboxes,
+		})
+		.from(maskedAliases)
+		.innerJoin(mailboxes, eq(maskedAliases.mailboxId, mailboxes.id))
+		.where(
+			and(
+				eq(maskedAliases.domainId, domainId),
+				eq(maskedAliases.localPart, localPart),
+			),
+		)
+		.limit(1);
+
+	return row;
 }

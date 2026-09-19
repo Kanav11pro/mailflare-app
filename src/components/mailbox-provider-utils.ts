@@ -8,6 +8,14 @@ let mailboxesRequestSessionToken: string | null = null;
 let cacheGeneration = 0;
 export const SELECTED_MAILBOX_STORAGE_KEY = "selected-mailbox-id";
 
+/**
+ * The primary mailbox is the one at the account address; it is the only mailbox
+ * whose name and avatar follow the profile.
+ */
+export function isIdentityMailbox(mailbox: Pick<MailboxOption, "type" | "isPrimary">): boolean {
+	return mailbox.type === "personal" && !!mailbox.isPrimary;
+}
+
 export function clearMailboxesCache() {
 	cacheGeneration += 1;
 	mailboxesCache = null;
@@ -44,6 +52,7 @@ export async function fetchMailboxOptions(force = false): Promise<MailboxOption[
 		.then((data) => {
 			const items = (data.mailboxes ?? []).map((m) => ({
 				id: m.id,
+				domainId: m.domainId,
 				localPart: m.localPart,
 				hostname: m.hostname,
 				displayName: m.displayName,

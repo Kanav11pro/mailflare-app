@@ -1,0 +1,60 @@
+{
+  "expo": {
+    "name": "Mailflare",
+    "slug": "mailflare",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.mailflare.app",
+      "userInterfaceStyle": "dark",
+      "infoPlist": {
+        "NSFaceIDUsageDescription": "Allow Mailflare to use Face ID for biometric authentication."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0f1015"
+      },
+      "package": "com.mailflare.app",
+      "userInterfaceStyle": "dark",
+      "permissions": [
+        "USE_BIOMETRIC",
+        "USE_FINGERPRINT",
+        "INTERNET",
+        "VIBRATE",
+        "RECEIVE_BOOT_COMPLETED"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Allow Mailflare to use Face ID for biometric authentication."
+        }
+      ],
+      "expo-secure-store",
+      "expo-asset",
+      "expo-font",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#0f1015"
+        }
+      ]
+    ],
+    "scheme": "mailflare",
+    "extra": {
+      "eas": {
+        "projectId": "991011a8-ee03-4969-841e-1bf6363f571f"
+      }
+    }
+  }
+}

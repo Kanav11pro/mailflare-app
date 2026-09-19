@@ -36,7 +36,7 @@ const UndoSendContext = createContext<UndoSendContextType | null>(null);
 export function UndoSendProvider({ children }: { children: React.ReactNode }) {
 	const [activeSends, setActiveSends] = useState<QueuedSendPayload[]>([]);
 	const undoCallbacks = useRef<Map<string, (payload: QueuedSendPayload) => void>>(new Map());
-	const timers = useRef<Map<string, NodeJS.Timeout>>(new Map());
+	const timers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
 	async function executeSend(payload: QueuedSendPayload) {
 		try {

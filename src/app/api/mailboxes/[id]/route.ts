@@ -5,7 +5,9 @@ import { mailboxes, users } from "@/db/schema";
 import { requireUser } from "@/lib/auth/cookies";
 import { getEnv } from "@/lib/cloudflare";
 import { getMailboxAccessLevel } from "@/lib/mailboxes/access";
-import { ensureMailboxDomainRouting } from "@/lib/mailboxes/domain-addresses";
+import { ensureMailboxDomainRouting, removeMailboxDomainRouting } from "@/lib/mailboxes/domain-addresses";
+import { isPrimaryMailbox, tracksAccountIdentity } from "@/lib/profile/identity-utils";
+import { syncPersonalIdentity } from "@/lib/profile/sync";
 import { updateMailboxSchema } from "@/lib/validators";
 import type { MailboxRouteParams } from "./types";
 import { getMailboxUpdateValues, selectMailboxForUser } from "./utils";
@@ -24,14 +26,16 @@ export async function GET(request: Request, { params }: MailboxRouteParams) {
 	if (!mailbox) {
 		return NextResponse.json({ error: "Mailbox not found" }, { status: 404 });
 	}
-	const { avatarKey, ...mailboxDetails } = mailbox;
+	const { avatarKey, ownerName, ownerAvatarKey, ...mailboxDetails } = mailbox;
+	const identity = tracksAccountIdentity(mailbox, user.email);
 
 	return NextResponse.json({
 		mailbox: {
 			...mailboxDetails,
-			hasAvatar: !!avatarKey,
+			displayName: identity ? ownerName : mailbox.displayName,
+			hasAvatar: identity ? !!ownerAvatarKey : !!avatarKey,
 			permission: access.permission,
-			isPrimary: `${mailbox.localPart}@${mailbox.hostname}` === user.email,
+			isPrimary: isPrimaryMailbox(mailbox, user.email),
 		},
 	});
 }
@@ -55,6 +59,20 @@ export async function PATCH(request: Request, { params }: MailboxRouteParams) {
 	}
 
 	const updateValues = getMailboxUpdateValues(parsed.data);
+	// Only the primary mailbox carries the account name; renaming any other
+	// mailbox writes to that mailbox alone.
+	if (tracksAccountIdentity(existing, user.email) && "displayName" in parsed.data) {
+		const name = parsed.data.displayName?.trim();
+		if (!name) {
+			return NextResponse.json({ error: "A valid account name is required" }, { status: 400 });
+		}
+		await syncPersonalIdentity(db, {
+			userId: existing.userId,
+			name,
+			avatarKey: existing.ownerAvatarKey,
+		});
+		delete updateValues.displayName;
+	}
 	if (parsed.data.useAllDomains === true) {
 		try {
 			await ensureMailboxDomainRouting(env, db, {
@@ -79,14 +97,16 @@ export async function PATCH(request: Request, { params }: MailboxRouteParams) {
 	}
 
 	const [mailbox] = await selectMailboxForUser(db, user.id, id);
-	const { avatarKey, ...mailboxDetails } = mailbox!;
+	const { avatarKey, ownerName, ownerAvatarKey, ...mailboxDetails } = mailbox!;
+	const identity = tracksAccountIdentity(mailbox!, user.email);
 
 	return NextResponse.json({
 		mailbox: {
 			...mailboxDetails,
-			hasAvatar: !!avatarKey,
+			displayName: identity ? ownerName : mailbox!.displayName,
+			hasAvatar: identity ? !!ownerAvatarKey : !!avatarKey,
 			permission: access.permission,
-			isPrimary: `${mailbox!.localPart}@${mailbox!.hostname}` === user.email,
+			isPrimary: isPrimaryMailbox(mailbox!, user.email),
 		},
 	});
 }
@@ -105,6 +125,19 @@ export async function DELETE(request: Request, { params }: MailboxRouteParams) {
 		allowed = mailbox.userId === user.id || owner?.createdByUserId === user.id;
 	}
 	if (!allowed) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+	try {
+		await removeMailboxDomainRouting(env, db, {
+			id: mailbox.id,
+			domainId: mailbox.domainId,
+			localPart: mailbox.localPart,
+			useAllDomains: mailbox.useAllDomains,
+		});
+	} catch (err) {
+		const message = err instanceof Error ? err.message : "Failed to remove Cloudflare routing rule";
+		return NextResponse.json({ error: message }, { status: 502 });
+	}
+
 	await db.delete(mailboxes).where(eq(mailboxes.id, id));
 	return NextResponse.json({ ok: true });
 }

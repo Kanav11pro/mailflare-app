@@ -9,16 +9,22 @@ import {
 } from "react";
 import type { ReactNode } from "react";
 import {
+	clearMailboxesCache,
 	fetchMailboxOptions,
+	isIdentityMailbox,
 	SELECTED_MAILBOX_STORAGE_KEY,
 } from "./mailbox-provider-utils";
 import {
 	AUTH_SESSION_CHANGED_EVENT,
 	getClientSessionToken,
 } from "@/lib/auth/client";
+import { PROFILE_NAME_CHANGED_EVENT } from "@/lib/profile/name-client";
+import { PROFILE_AVATAR_CHANGED_EVENT } from "@/lib/profile/avatar-client";
+import type { ProfileNameChangedDetail } from "@/lib/profile/types";
 
 export type MailboxOption = {
 	id: string;
+	domainId: string;
 	localPart: string;
 	hostname: string;
 	displayName: string | null;
@@ -96,6 +102,38 @@ export function MailboxProvider({ children }: { children: ReactNode }) {
 
 		window.addEventListener(AUTH_SESSION_CHANGED_EVENT, resetMailboxState);
 		return () => window.removeEventListener(AUTH_SESSION_CHANGED_EVENT, resetMailboxState);
+	}, []);
+
+	useEffect(() => {
+		function updatePersonalMailboxNames(event: Event) {
+			const { name } = (event as CustomEvent<ProfileNameChangedDetail>).detail;
+			clearMailboxesCache();
+			// Only the primary mailbox follows the profile name; the rest keep their own.
+			setMailboxes((items) => items.map((mailbox) => (
+				isIdentityMailbox(mailbox) ? { ...mailbox, displayName: name } : mailbox
+			)));
+			setSelectedMailboxState((mailbox) => (
+				mailbox && isIdentityMailbox(mailbox) ? { ...mailbox, displayName: name } : mailbox
+			));
+		}
+
+		window.addEventListener(PROFILE_NAME_CHANGED_EVENT, updatePersonalMailboxNames);
+		return () => window.removeEventListener(PROFILE_NAME_CHANGED_EVENT, updatePersonalMailboxNames);
+	}, []);
+
+	useEffect(() => {
+		function updatePersonalMailboxAvatars() {
+			clearMailboxesCache();
+			setMailboxes((items) => items.map((mailbox) => (
+				isIdentityMailbox(mailbox) ? { ...mailbox, hasAvatar: true } : mailbox
+			)));
+			setSelectedMailboxState((mailbox) => (
+				mailbox && isIdentityMailbox(mailbox) ? { ...mailbox, hasAvatar: true } : mailbox
+			));
+		}
+
+		window.addEventListener(PROFILE_AVATAR_CHANGED_EVENT, updatePersonalMailboxAvatars);
+		return () => window.removeEventListener(PROFILE_AVATAR_CHANGED_EVENT, updatePersonalMailboxAvatars);
 	}, []);
 
 	const setSelectedMailbox = useCallback((mb: MailboxOption | null) => {

@@ -1,9 +1,10 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { getDb } from "@/db";
 import { contacts, routingRules } from "@/db/schema";
-import { normalizeEmailAddress } from "@/lib/email/address";
+import { getFirstEmailAddressEntry, normalizeEmailAddress } from "@/lib/email/address";
 import type { BlockContactInput, ContactInput, MessageContactNames } from "@/lib/contacts/types";
 import { getContactId, getContactNameFromAddress } from "@/lib/contacts/utils";
+import { importGravatarAvatar } from "@/lib/contacts/gravatar";
 
 export async function upsertContactFromAddress(env: CloudflareEnv, input: ContactInput) {
 	const email = normalizeEmailAddress(input.address);
@@ -20,7 +21,9 @@ export async function upsertContactFromAddress(env: CloudflareEnv, input: Contac
 
 	if (existing) {
 		const nextDisplayName = getNextDisplayName(existing.displayName, existing.source, displayName);
-		const nextSource = existing.source === "manual" ? "manual" : input.source;
+		const nextSource = existing.source === "manual" || (existing.source === "outbound" && input.source === "inbound")
+			? existing.source
+			: input.source;
 
 		await db
 			.update(contacts)
@@ -42,6 +45,10 @@ export async function upsertContactFromAddress(env: CloudflareEnv, input: Contac
 		source: input.source,
 		lastSeenAt: now,
 	});
+	const avatarKey = await importGravatarAvatar(env, input.userId, email);
+	if (avatarKey) {
+		await db.update(contacts).set({ avatarKey }).where(eq(contacts.id, id));
+	}
 
 	const [created] = await db.select().from(contacts).where(eq(contacts.id, id)).limit(1);
 	return created ?? null;
@@ -64,17 +71,32 @@ export async function getContactDisplayNameMap(env: CloudflareEnv, userId: strin
 	);
 }
 
+export async function getContactAvatarMap(env: CloudflareEnv, userId: string, addresses: string[]) {
+	const emails = Array.from(new Set(addresses.map(normalizeEmailAddress).filter(Boolean)));
+	if (emails.length === 0) return new Map<string, boolean>();
+
+	const db = getDb(env);
+	const rows = await db
+		.select({ email: contacts.email, avatarKey: contacts.avatarKey })
+		.from(contacts)
+		.where(and(eq(contacts.userId, userId), inArray(contacts.email, emails)));
+
+	return new Map(rows.map((contact) => [contact.email, !!contact.avatarKey]));
+}
+
 export async function getMessageContactNames(
 	env: CloudflareEnv,
 	userId: string,
 	fromAddr: string,
 	toAddr: string,
 ): Promise<MessageContactNames> {
-	const contactMap = await getContactDisplayNameMap(env, userId, [fromAddr, toAddr]);
+	// `toAddr` may be a full recipient list; the name shown belongs to the first one.
+	const firstTo = getFirstEmailAddressEntry(toAddr);
+	const contactMap = await getContactDisplayNameMap(env, userId, [fromAddr, firstTo]);
 
 	return {
 		fromContactName: contactMap.get(normalizeEmailAddress(fromAddr)) ?? null,
-		toContactName: contactMap.get(normalizeEmailAddress(toAddr)) ?? null,
+		toContactName: contactMap.get(normalizeEmailAddress(firstTo)) ?? null,
 	};
 }
 
@@ -101,6 +123,10 @@ export async function blockContact(env: CloudflareEnv, input: BlockContactInput)
 			blocked: true,
 			lastSeenAt: new Date(),
 		});
+		const avatarKey = await importGravatarAvatar(env, input.userId, email);
+		if (avatarKey) {
+			await db.update(contacts).set({ avatarKey }).where(eq(contacts.id, contactId));
+		}
 	}
 
 	const [existingRule] = await db

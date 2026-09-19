@@ -47,13 +47,7 @@ export async function POST(request: Request) {
 
 	const userId = newId("usr");
 	try {
-		if (!domain.zoneId.startsWith("ext_")) {
-			try {
-				await ensureEmailRoutingRuleToWorker(access.env, domain.zoneId, email);
-			} catch (err) {
-				console.warn("Skipping Cloudflare routing rule for account:", err);
-			}
-		}
+		await ensureEmailRoutingRuleToWorker(access.env, domain.zoneId, email);
 		const [account] = await db
 			.insert(users)
 			.values({

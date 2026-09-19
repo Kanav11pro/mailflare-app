@@ -31,7 +31,7 @@ export default function DashboardLayout({
       <SidebarProvider expandedWidth={256}>
       <MailboxProvider>
         <ComposeProvider>
-          <div className="grid h-dvh grid-cols-[var(--sidebar-width)_minmax(0,1fr)] overflow-hidden bg-[#f6f8fc] transition-[grid-template-columns] duration-200">
+          <div className="grid h-dvh grid-cols-[var(--sidebar-width)_minmax(0,1fr)] overflow-hidden bg-[#f6f8fc] dark:bg-[#0f1015] transition-[grid-template-columns] duration-200">
             <aside className="min-h-0 overflow-y-auto overscroll-contain px-3 py-4 scrollbar-gutter-stable">
               <AdminNav />
             </aside>

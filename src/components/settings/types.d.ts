@@ -1,8 +1,6 @@
 export type ProfileFormProps = {
 	initialName: string;
 	initialResetEmail: string;
-	initialForwardingEmail?: string;
-	canForwardEmail?: boolean;
 	email: string;
 };
 
@@ -24,6 +22,25 @@ export type AccountSettingsResponse = {
 		forwardingEmail: string | null;
 		canForwardEmail: boolean;
 	};
+	error?: unknown;
+};
+
+export type MfaStatusResponse = {
+	enabled: boolean;
+	confirmedAt: string | null;
+	recoveryCodesLeft: number;
+	error?: unknown;
+};
+
+export type MfaEnrollmentResponse = {
+	secret?: string;
+	otpauthUrl?: string;
+	qrSvg?: string;
+	error?: unknown;
+};
+
+export type MfaRecoveryCodesResponse = {
+	recoveryCodes?: string[];
 	error?: unknown;
 };
 
@@ -87,6 +104,7 @@ export type ProfileAvatarFormProps = {
 export type CurrentMailboxFormResponse = {
 	mailbox?: {
 		id: string;
+		domainId: string;
 		localPart: string;
 		hostname: string;
 		displayName: string | null;

@@ -1,166 +1,206 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
-import { ChevronDown, ChevronUp, Clock, CornerDownRight, MessageSquare } from "lucide-react";
-import { authFetch } from "@/lib/auth/client";
-import { SmartAvatar } from "@/components/smart-avatar";
-import { QuickReplyBox } from "./quick-reply-box";
-import { formatMessageListTimestamp } from "./utils";
+import { useEffect, useState } from "react";
+import dayjs from "dayjs";
+import { ChevronsUpDown, Paperclip } from "lucide-react";
+import { ContactAvatar } from "@/components/contacts/contact-avatar";
+import { runSingleMessageAction } from "@/components/message-actions/utils";
+import { sanitizeEmailHtml } from "@/app/(dashboard)/inbox/[messageId]/email-html-sanitizer";
+import { getMessageBodyDisplay, resolveInlineAttachmentUrls } from "@/app/(dashboard)/inbox/[messageId]/utils";
+
 import { cn } from "@/lib/utils";
+import type { ConversationMessageCardProps, ConversationThreadProps } from "./conversation-thread-types";
+import { ThreadMessageActions } from "./thread-message-actions";
+import {
+	getConversationRecipients,
+	getConversationSender,
+	getConversationSenderEmail,
+	partitionThread,
+} from "./conversation-thread-utils";
+import clsx from "clsx";
 
-interface ThreadMessage {
-	id: string;
-	fromAddr: string;
-	toAddr: string;
-	subject: string | null;
-	snippet: string | null;
-	textBody: string | null;
-	htmlBody: string | null;
-	direction: "inbound" | "outbound";
-	createdAt: string;
-}
-
-interface ConversationThreadProps {
-	currentMessageId: string;
-	mailboxId?: string | null;
-	fromAddress: string;
-	toAddress: string;
-	subject: string | null;
-	ownAddress: string;
-}
-
+/**
+ * The other messages in a conversation, ordered oldest to newest and collapsed
+ * until opened. Readers can also expand the full visible portion at once.
+ */
 export function ConversationThread({
 	currentMessageId,
+	position,
+	messages,
 	mailboxId,
-	fromAddress,
-	toAddress,
-	subject,
+	currentAccountName,
 	ownAddress,
+	ownAddresses,
+	latestMessagesFirst,
+	expandedAll,
+	onExpandedAllChange,
 }: ConversationThreadProps) {
-	const [messages, setMessages] = useState<ThreadMessage[]>([]);
-	const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set([currentMessageId]));
-	const [loading, setLoading] = useState(false);
-
-	async function loadThread() {
-		setLoading(true);
-		try {
-			const res = await authFetch(`/api/messages/${currentMessageId}/thread`);
-			if (res.ok) {
-				const data = (await res.json()) as { messages: ThreadMessage[] };
-				setMessages(data.messages);
-				// Keep current message expanded
-				setExpandedIds(new Set([currentMessageId]));
-			}
-		} catch (err) {
-			console.error("Failed to load thread:", err);
-		} finally {
-			setLoading(false);
-		}
-	}
-
-	useEffect(() => {
-		void loadThread();
-	}, [currentMessageId]);
-
-	function toggleExpand(id: string) {
-		setExpandedIds((prev) => {
-			const next = new Set(prev);
-			if (next.has(id)) next.delete(id);
-			else next.add(id);
-			return next;
-		});
-	}
-
-	const earlierMessages = messages.filter((m) => m.id !== currentMessageId);
+	const slice = partitionThread(messages, currentMessageId, position, latestMessagesFirst);
+	if (slice.length === 0) return null;
+	const firstMessage = slice[0];
+	const lastMessage = slice.at(-1)!;
+	const middleMessages = slice.slice(1, -1);
+	const collapsed = !expandedAll && middleMessages.length > 0;
+	const collapsedLabel = `${middleMessages.length} ${position === "before" ? "older" : "newer"} message${middleMessages.length === 1 ? "" : "s"}`;
 
 	return (
-		<div className="mt-8 space-y-4">
-			{earlierMessages.length > 0 && (
-				<div className="space-y-3">
-					<div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-neutral-400">
-						<MessageSquare className="h-3.5 w-3.5" />
-						<span>Thread History ({messages.length} messages)</span>
-					</div>
-
-					{earlierMessages.map((msg) => {
-						const isExpanded = expandedIds.has(msg.id);
-						const isOutbound = msg.direction === "outbound";
-
-						return (
-							<div
-								key={msg.id}
-								className="overflow-hidden rounded-2xl border border-neutral-200 bg-white transition-shadow dark:border-neutral-800 dark:bg-[#18191e]"
+		<section
+			aria-label={position === "before" ? "Earlier messages in this conversation" : "Later messages in this conversation"}
+			className={cn(position === (latestMessagesFirst ? "before" : "after") ? "pb-6" : "")}
+		>
+			<ol className={cn(!collapsed && "divide-y divide-neutral-200/50", latestMessagesFirst ? "border-y" : "border-b", "border-neutral-200")}>
+				<li className={"border-t-0" }>
+					<ConversationMessageCard
+						message={firstMessage}
+						mailboxId={mailboxId}
+						currentAccountName={currentAccountName}
+						ownAddress={ownAddress}
+						ownAddresses={ownAddresses}
+					/>
+				</li>
+				{collapsed ? (
+					<li className="flex items-center justify-center gap-1 py-2 text-center border-y border-neutral-100 h-px my-4">
+						<span className="bg-white px-6 flex flex-row items-center gap-2">
+							<span className="text-sm font-medium text-neutral-600">{collapsedLabel}</span>
+							<button
+								type="button"
+								onClick={() => onExpandedAllChange(true)}
+								aria-label={`Expand ${collapsedLabel}`}
+								title={`Expand ${collapsedLabel}`}
+								className="inline-flex h-6 w-6 items-center justify-center rounded-full text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900"
 							>
-								{/* Clickable Header */}
-								<button
-									type="button"
-									onClick={() => toggleExpand(msg.id)}
-									className="flex w-full items-center justify-between gap-3 p-3.5 text-left hover:bg-neutral-50 dark:hover:bg-neutral-800/50"
-								>
-									<div className="flex items-center gap-3 min-w-0 flex-1">
-										<SmartAvatar
-											name={isOutbound ? "You" : msg.fromAddr}
-											address={msg.fromAddr}
-											size="sm"
-										/>
-										<div className="min-w-0 flex-1">
-											<div className="flex items-center gap-2">
-												<span className="font-semibold text-xs text-neutral-900 dark:text-neutral-100">
-													{isOutbound ? "You" : msg.fromAddr}
-												</span>
-												<span className="text-[11px] text-neutral-400">
-													to {isOutbound ? msg.toAddr : "You"}
-												</span>
-											</div>
-											{!isExpanded && (
-												<p className="truncate text-xs text-neutral-500 dark:text-neutral-400">
-													{msg.snippet || msg.textBody || "(no content)"}
-												</p>
-											)}
-										</div>
-									</div>
+								<ChevronsUpDown className="h-4 w-4" />
+							</button>
+						</span>
+					</li>
+				) : (
+					middleMessages.map((message) => (
+						<li key={message.id}>
+							<ConversationMessageCard
+								message={message}
+								mailboxId={mailboxId}
+								currentAccountName={currentAccountName}
+								ownAddress={ownAddress}
+								ownAddresses={ownAddresses}
+							/>
+						</li>
+					))
+				)}
+				{lastMessage.id !== firstMessage.id && (
+					<li>
+						<ConversationMessageCard
+							message={lastMessage}
+							mailboxId={mailboxId}
+							currentAccountName={currentAccountName}
+							ownAddress={ownAddress}
+							ownAddresses={ownAddresses}
+						/>
+					</li>
+				)}
+			</ol>
+		</section>
+	);
+}
 
-									<div className="flex items-center gap-2 shrink-0">
-										<span className="text-[11px] text-neutral-400">
-											{formatMessageListTimestamp(msg.createdAt)}
-										</span>
-										{isExpanded ? (
-											<ChevronUp className="h-4 w-4 text-neutral-400" />
-										) : (
-											<ChevronDown className="h-4 w-4 text-neutral-400" />
-										)}
-									</div>
-								</button>
+export function ConversationMessageCard({
+	message,
+	mailboxId,
+	currentAccountName,
+	ownAddress,
+	ownAddresses,
+	defaultExpanded = false,
+}: ConversationMessageCardProps) {
+	const [locallyExpanded, setLocallyExpanded] = useState(defaultExpanded);
+	const [locallyRead, setLocallyRead] = useState(message.read);
+	const expanded = locallyExpanded;
+	const sender = getConversationSender(message, currentAccountName);
+	const senderEmail = getConversationSenderEmail(message);
+	const recipients = getConversationRecipients(message);
+	// const href = `${getMessageBackHref(message.direction, message.status)}/${message.id}`;
+	const outbound = message.direction === "outbound";
+	const attachments = message.attachments.filter((attachment) => attachment.disposition === "attachment");
 
-								{/* Expanded Body */}
-								{isExpanded && (
-									<div className="border-t border-neutral-100 p-4 text-sm leading-relaxed text-neutral-800 dark:border-neutral-800 dark:text-neutral-200">
-										{msg.htmlBody ? (
-											<div
-												dangerouslySetInnerHTML={{ __html: msg.htmlBody }}
-												className="prose dark:prose-invert max-w-none text-sm"
-											/>
-										) : (
-											<p className="whitespace-pre-wrap">{msg.textBody}</p>
-										)}
-									</div>
-								)}
-							</div>
-						);
-					})}
+	useEffect(() => setLocallyRead(message.read), [message.read]);
+
+	let body: { html: string | null; text: string } | null = null;
+	if (expanded) {
+		const display = getMessageBodyDisplay(message.textBody, message.htmlBody, message.snippet);
+		body = {
+			html: sanitizeEmailHtml(resolveInlineAttachmentUrls(display.htmlBody, message.id, message.attachments)),
+			text: display.latestContent,
+		};
+	}
+
+	return (
+		<article className={cn("bg-white transition-colors px-6", !expanded && "hover:bg-neutral-50")}>
+			<div className="flex w-full items-start gap-3 py-3">
+				<button
+					type="button"
+					onClick={() => {
+						const shouldExpand = !locallyExpanded;
+						setLocallyExpanded(shouldExpand);
+						if (!shouldExpand || locallyRead) return;
+						setLocallyRead(true);
+						void runSingleMessageAction(message.id, "read").catch(() => setLocallyRead(false));
+					}}
+					aria-expanded={expanded}
+					className="flex min-w-0 flex-1 items-center gap-3 text-left cursor-pointer"
+				>
+					<ContactAvatar
+						mailboxId={mailboxId}
+						address={message.fromAddr}
+						name={sender}
+						hasManagedAvatar={message.fromContactHasAvatar}
+						managedAvatarUrl={outbound && mailboxId ? `/api/mailboxes/${mailboxId}/avatar` : undefined}
+					/>
+					<span className="min-w-0 flex-1">
+						<div className="flex flex-col">
+							<span className={cn("truncate text-sm font-semibold mt-1", locallyRead || outbound ? "text-neutral-900" : "font-semibold text-neutral-900")}>
+								{sender}
+								{expanded && <span className="text-xs ml-1 opacity-50 font-normal">&lt;{senderEmail}&gt;</span>}
+							</span>
+							{expanded && recipients && <span className="text-xs font-normal text-neutral-500">to {recipients}</span>}
+						</div>
+						{!expanded && (
+							<span className={clsx( !locallyRead ? "font-semibold" : "text-neutral-500", "block truncate text-[13px]")}>{message.snippet || "No preview"}</span>
+						)}
+					</span>
+				</button>
+				<span className="flex shrink-0 items-center gap-2 text-xs mr-2 mt-2">
+					{attachments.length > 0 && <Paperclip className="h-3.5 w-3.5" aria-label={`${attachments.length} attachments`} />}
+					{dayjs(message.createdAt).format("MMM DD, YYYY, hh:mmA")}
+				</span>
+				<ThreadMessageActions
+					message={message}
+					mailboxId={mailboxId}
+					ownAddress={ownAddress}
+					ownAddresses={ownAddresses}
+				/>
+			</div>
+			{expanded && body && (
+				<div className="pb-4 pt-2">
+					{body.html ? (
+						<div className="email-body max-w-none text-sm text-neutral-900" dangerouslySetInnerHTML={{ __html: body.html }} />
+					) : (
+						<pre className="whitespace-pre-wrap font-sans text-sm text-neutral-900">{body.text}</pre>
+					)}
+					{attachments.length > 0 && (
+						<ul className="mt-4 flex flex-wrap gap-2">
+							{attachments.map((attachment) => (
+								<li key={attachment.id}>
+									<a
+										href={`/api/messages/${message.id}/attachments/${attachment.id}`}
+										className="inline-flex items-center gap-1.5 rounded-md border border-neutral-200 bg-white px-2.5 py-1 text-xs text-neutral-700 hover:bg-neutral-50"
+									>
+										<Paperclip className="h-3 w-3" />
+										<span className="max-w-48 truncate">{attachment.filename}</span>
+									</a>
+								</li>
+							))}
+						</ul>
+					)}
 				</div>
 			)}
-
-			{/* Inline Quick Reply Box */}
-			<QuickReplyBox
-				messageId={currentMessageId}
-				mailboxId={mailboxId}
-				fromAddress={fromAddress}
-				toAddress={toAddress}
-				subject={subject}
-				ownAddress={ownAddress}
-				onSent={loadThread}
-			/>
-		</div>
+		</article>
 	);
 }

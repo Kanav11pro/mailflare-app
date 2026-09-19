@@ -1,15 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ChangePasswordForm } from "./change-password-form";
+import { EmailClientsSettings } from "./email-clients-settings";
+import { MfaSettings } from "./mfa-settings";
+import { ForwardingEmailForm } from "./forwarding-email-form";
+import { MailboxSignatureForm } from "./mailbox-signature-form";
 import { ProfileForm } from "./profile-form";
 import type { AccountSettingsResponse } from "./types";
 import { loadAccountSettings } from "./utils";
-
-import { MailboxSignatureForm } from "./mailbox-signature-form";
-import { ThemeSettings } from "./theme-settings";
 
 export function AccountSettings() {
 	const [user, setUser] = useState<AccountSettingsResponse["user"]>();
@@ -46,48 +46,73 @@ export function AccountSettings() {
 
 	return (
 		<div className="space-y-8 py-4">
-			<div>
-				<h1 className="text-3xl font-medium text-neutral-900">Account & Mailbox Settings</h1>
-				<p className="mt-1 text-sm text-neutral-500">Manage your account details, signatures, appearance, and sign-in password.</p>
-			</div>
+			{/* <div>
+				<h1 className="text-3xl font-medium text-neutral-900">Account</h1>
+				<p className="mt-1 text-sm text-neutral-500">Manage your account details and sign-in password.</p>
+			</div> */}
 
-			<ThemeSettings />
-
-			<Card className="rounded-3xl border-0 bg-white px-6">
-				<CardHeader>
-					<CardTitle>Email Signature</CardTitle>
-					<CardDescription>Personalize the signature attached to emails sent from your active mailbox.</CardDescription>
-				</CardHeader>
-				<CardContent className="pb-6">
-					<MailboxSignatureForm />
-				</CardContent>
-			</Card>
-
-			<Card className="rounded-3xl border-0 bg-white px-6">
-				<CardHeader>
-					<CardTitle>Account details</CardTitle>
-					<CardDescription>Your current email is assigned to this account and cannot be changed here.</CardDescription>
-				</CardHeader>
-				<CardContent className="pb-6">
+			<section className="space-y-4">
+				<div>
+					<h2 className="text-xl font-semibold text-neutral-900 dark:text-neutral-100">Account details</h2>
+					<p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Manage your identity, recovery options, and email preferences.</p>
+				</div>
+				<div className="space-y-1 overflow-hidden rounded-3xl">
 					<ProfileForm
 						initialName={user.name}
 						initialResetEmail={user.resetEmail ?? ""}
-						initialForwardingEmail={user.forwardingEmail ?? ""}
-						canForwardEmail={user.canForwardEmail}
 						email={user.email}
 					/>
-				</CardContent>
-			</Card>
 
-			<Card className="rounded-3xl border-0 bg-white px-6">
-				<CardHeader>
-					<CardTitle>Change password</CardTitle>
-					<CardDescription>Use at least 8 characters for your new password.</CardDescription>
-				</CardHeader>
-				<CardContent className="pb-6">
+					{user.canForwardEmail && (
+						<div className="space-y-4 rounded-lg border border-neutral-200 bg-white p-6 dark:border-neutral-800 dark:bg-[#1a1b20]">
+							<div>
+								<h3 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Forwarding email</h3>
+								<p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Send a copy of incoming messages to another email address.</p>
+							</div>
+						<ForwardingEmailForm initialForwardingEmail={user.forwardingEmail ?? ""} />
+						</div>
+					)}
+
+					<div className="space-y-4 rounded-b-3xl rounded-t-lg border border-neutral-200 bg-white p-6 dark:border-neutral-800 dark:bg-[#1a1b20]">
+						<div>
+							<h3 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Email signature</h3>
+							<p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Configure the signature for the inbox currently selected above.</p>
+						</div>
+					<MailboxSignatureForm />
+					</div>
+				</div>
+			</section>
+
+			<section className="space-y-4">
+				<div>
+					<h2 className="text-xl font-semibold text-neutral-900 dark:text-neutral-100">Security</h2>
+					<p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Manage how you sign in to your account.</p>
+				</div>
+				<div className="space-y-4 rounded-3xl border border-neutral-200 bg-white p-6 dark:border-neutral-800 dark:bg-[#1a1b20]">
+					<div>
+						<h3 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Change password</h3>
+						<p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Use at least 8 characters for your new password.</p>
+					</div>
 					<ChangePasswordForm />
-				</CardContent>
-			</Card>
+				</div>
+				<div className="space-y-4 rounded-3xl border border-neutral-200 bg-white p-6 dark:border-neutral-800 dark:bg-[#1a1b20]">
+					<div>
+						<h3 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Two-factor authentication</h3>
+						<p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Require a code from an authenticator app when signing in.</p>
+					</div>
+					<MfaSettings />
+				</div>
+			</section>
+
+			<section className="space-y-4">
+				<div>
+					<h2 className="text-xl font-semibold text-neutral-900 dark:text-neutral-100">Email apps</h2>
+					<p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Use your mail from a desktop or mobile app over JMAP.</p>
+				</div>
+				<div className="space-y-4 rounded-3xl border border-neutral-200 bg-white p-6 dark:border-neutral-800 dark:bg-[#1a1b20]">
+					<EmailClientsSettings />
+				</div>
+			</section>
 		</div>
 	);
 }

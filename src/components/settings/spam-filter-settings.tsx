@@ -1,0 +1,69 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { authFetch } from "@/lib/auth/client";
+import { Switch } from "@/components/ui/switch";
+
+export function SpamFilterSettings() {
+	const [enabled, setEnabled] = useState(true);
+	const [loading, setLoading] = useState(true);
+	const [error, setError] = useState<string | null>(null);
+
+	useEffect(() => {
+		void authFetch("/api/settings/spam")
+			.then(async (response) => {
+				const text = await response.text();
+				let data: { enabled?: boolean; error?: string } = {};
+				try {
+					data = text ? JSON.parse(text) : {};
+				} catch {
+					throw new Error("Unable to reach spam settings API. Please verify server connectivity.");
+				}
+				if (!response.ok) throw new Error(data.error ?? "Failed to load spam filter settings");
+				setEnabled(data.enabled !== false);
+			})
+			.catch((nextError) => setError(nextError instanceof Error ? nextError.message : "Failed to load spam filter settings"))
+			.finally(() => setLoading(false));
+	}, []);
+
+	async function updateEnabled(nextEnabled: boolean) {
+		const previous = enabled;
+		setEnabled(nextEnabled);
+		setLoading(true);
+		setError(null);
+		try {
+			const response = await authFetch("/api/settings/spam", {
+				method: "PATCH",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ enabled: nextEnabled }),
+			});
+			const text = await response.text();
+			let data: { enabled?: boolean; error?: string } = {};
+			try {
+				data = text ? JSON.parse(text) : {};
+			} catch {
+				throw new Error("Unable to reach spam settings API. Please verify server connectivity.");
+			}
+			if (!response.ok) throw new Error(data.error ?? "Failed to update spam filter settings");
+			setEnabled(data.enabled !== false);
+		} catch (nextError) {
+			setEnabled(previous);
+			setError(nextError instanceof Error ? nextError.message : "Failed to update spam filter settings");
+		} finally {
+			setLoading(false);
+		}
+	}
+
+	return (
+		<div>
+			<label className="flex items-start gap-3 rounded-2xl border border-neutral-200 bg-neutral-50/50 p-4 transition-colors dark:border-neutral-800 dark:bg-[#18191e]">
+				<span className="flex-1">
+					<span className="block text-sm font-semibold text-neutral-900 dark:text-neutral-100">Spam Filter & Heuristics</span>
+					<span className="mt-1 block text-xs text-neutral-500 dark:text-neutral-400">Analyze incoming SPF/DKIM/DMARC authentication, Bayesian tokens, and URLs locally to route high-confidence spam away from your inbox.</span>
+				</span>
+				<Switch checked={enabled} disabled={loading} onCheckedChange={(value) => void updateEnabled(value)} aria-label="Enable spam filter" />
+			</label>
+			{error && <p className="mt-2 px-4 text-sm text-red-600 dark:text-red-400">{error}</p>}
+		</div>
+	);
+}

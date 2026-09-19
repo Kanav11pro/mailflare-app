@@ -1,5 +1,5 @@
 export interface AttachmentContent {
-	content: ArrayBuffer;
+	content: ArrayBuffer | Uint8Array;
 	contentId?: string | null;
 	disposition?: "attachment" | "inline";
 	filename: string;

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { eq } from "drizzle-orm";
 import { getEnv } from "@/lib/cloudflare";
 import { getDb } from "@/db";
 import { messages } from "@/db/schema";
@@ -21,6 +22,12 @@ interface ResendWebhookPayload {
 		to?: string[];
 		subject?: string;
 		message_id?: string;
+		message?: string;
+		bounce_type?: string;
+		url?: string;
+		click?: {
+			link?: string;
+		};
 		attachments?: Array<{
 			id: string;
 			filename: string;
@@ -59,9 +66,104 @@ export async function POST(request: Request) {
 		return NextResponse.json({ error: "Invalid JSON payload" }, { status: 400 });
 	}
 
-	// Resend sends webhook event verification or email.received
-	if (body.type !== "email.received" || !body.data?.email_id) {
-		return NextResponse.json({ ok: true, message: "Ignored non-email event" });
+	// 1. Handle Outbound Delivery Telemetry Events (email.delivered, email.bounced, email.opened, etc.)
+	if (body.type !== "email.received") {
+		const emailId = body.data?.email_id;
+		if (!emailId) {
+			return NextResponse.json({ ok: true, message: "Ignored event with no email_id" });
+		}
+
+		const db = getDb(env);
+		const [matchingMsg] = await db
+			.select()
+			.from(messages)
+			.where(eq(messages.providerMessageId, emailId))
+			.limit(1);
+
+		if (!matchingMsg) {
+			return NextResponse.json({ ok: true, message: "No matching outbound message found" });
+		}
+
+		const eventTime = body.created_at ? new Date(body.created_at) : new Date();
+
+		if (body.type === "email.delivered") {
+			const latencyMs = Math.max(
+				0,
+				eventTime.getTime() - new Date(matchingMsg.createdAt).getTime()
+			);
+			await db
+				.update(messages)
+				.set({
+					deliveryStatus: "delivered",
+					deliveryAt: eventTime,
+					deliveryLatencyMs: latencyMs,
+					deliveryError: null,
+				})
+				.where(eq(messages.id, matchingMsg.id));
+		} else if (body.type === "email.sent") {
+			if (!matchingMsg.deliveryStatus || matchingMsg.deliveryStatus === "queued") {
+				await db
+					.update(messages)
+					.set({ deliveryStatus: "sent" })
+					.where(eq(messages.id, matchingMsg.id));
+			}
+		} else if (body.type === "email.delivery_delayed") {
+			await db
+				.update(messages)
+				.set({
+					deliveryError:
+						body.data?.message || "Delivery delayed / greylisted by recipient mail server",
+				})
+				.where(eq(messages.id, matchingMsg.id));
+		} else if (body.type === "email.bounced") {
+			const bounceType = body.data?.bounce_type || "Permanent";
+			const bounceError =
+				body.data?.message ||
+				(bounceType === "Permanent"
+					? "550 5.1.1 Recipient mailbox rejected (address does not exist)"
+					: "Transient SMTP delivery failure");
+			await db
+				.update(messages)
+				.set({
+					deliveryStatus: "bounced",
+					deliveryBounceType: bounceType,
+					deliveryError: bounceError,
+					deliveryAt: eventTime,
+				})
+				.where(eq(messages.id, matchingMsg.id));
+		} else if (body.type === "email.complained") {
+			await db
+				.update(messages)
+				.set({
+					deliveryStatus: "complained",
+					deliveryError: "Recipient marked email as spam",
+				})
+				.where(eq(messages.id, matchingMsg.id));
+		} else if (body.type === "email.opened") {
+			await db
+				.update(messages)
+				.set({
+					openedAt: matchingMsg.openedAt || eventTime,
+					openCount: (matchingMsg.openCount || 0) + 1,
+				})
+				.where(eq(messages.id, matchingMsg.id));
+		} else if (body.type === "email.clicked") {
+			const clickedUrl = body.data?.click?.link || body.data?.url || matchingMsg.lastClickedUrl;
+			await db
+				.update(messages)
+				.set({
+					clickedAt: matchingMsg.clickedAt || eventTime,
+					clickCount: (matchingMsg.clickCount || 0) + 1,
+					lastClickedUrl: clickedUrl,
+				})
+				.where(eq(messages.id, matchingMsg.id));
+		}
+
+		return NextResponse.json({ ok: true, event: body.type, messageId: matchingMsg.id });
+	}
+
+	if (!body.data?.email_id) {
+		return NextResponse.json({ ok: true, message: "Ignored empty email.received" });
 	}
 
 	const emailId = body.data.email_id;

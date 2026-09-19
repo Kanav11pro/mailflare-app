@@ -1,21 +1,27 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { getDb } from "@/db";
-import { messages } from "@/db/schema";
+import { messages, users } from "@/db/schema";
 import { newId } from "@/lib/ids";
 import { buildSnippet, parseRawMime } from "@/lib/email/parse";
 import { resolveInboundAddress, resolveInboxRuleDestination } from "@/lib/email/routing";
 import { dispatchWebhooks } from "@/lib/email/webhooks";
 import { getMessageContactNames, upsertContactFromAddress } from "@/lib/contacts/service";
-import { formatEmailAddress, getEmailAddress } from "@/lib/email/address";
+import { getEmailAddress } from "@/lib/email/address";
 import { sendMailboxAutoReply } from "@/lib/email/auto-reply";
 import { getMailboxAccessLevel } from "@/lib/mailboxes/access";
 import { listMessageAttachments, storeMessageAttachments } from "@/lib/email/attachments";
 import { getUnsubscribeUrlFromRawR2Key } from "@/lib/email/unsubscribe";
+import { resolveThreadId } from "@/lib/email/threading";
 import type { SessionUser } from "@/lib/auth/types";
+import { analyzeSpam } from "@/lib/spam/engine";
+import { getReputationKeys } from "@/lib/spam/analyzers/reputation";
+import { recordReputationObservation } from "@/lib/spam/repository";
 import {
 	getMailboxNotificationUserIds,
 	notifyUsersOfNewMessage,
 } from "@/lib/realtime/utils";
+import { sendPushNotificationToUsers } from "@/lib/notifications/push";
+import { sanitizeAndNeutralizeTrackers } from "@/lib/email/privacy-shield";
 
 export type InboundQueueMessage = {
 	from: string;
@@ -29,7 +35,9 @@ export async function processInboundMessage(
 	payload: InboundQueueMessage,
 ): Promise<void> {
 	const db = getDb(env);
-	const decision = await resolveInboundAddress(db, payload.to);
+	// The sender is passed so that sender-based block rules resolve the same way here as they
+	// do in the Worker email handler.
+	const decision = await resolveInboundAddress(db, payload.to, payload.from);
 
 	if (!decision) {
 		console.warn(`No routing for inbound address: ${payload.to}`);
@@ -41,12 +49,19 @@ export async function processInboundMessage(
 		return;
 	}
 
-	if (decision.action === "forward" && decision.forwardTo) {
+	// A forward decision only reaches the queue when the rule keeps a copy; without a
+	// destination mailbox there is nothing to store.
+	if (decision.action === "forward" && !decision.keepCopy) {
 		console.info(`Forward ${payload.to} -> ${decision.forwardTo}`);
 		return;
 	}
 
 	if (!decision.mailbox) return;
+	const [stored] = await db.select({ id: messages.id }).from(messages).where(and(
+		eq(messages.mailboxId, decision.mailbox.mailboxId),
+		eq(messages.rawR2Key, payload.rawR2Key),
+	)).limit(1);
+	if (stored) return;
 
 	const raw = await env.BUCKET.get(payload.rawR2Key);
 	if (!raw) {
@@ -59,47 +74,131 @@ export async function processInboundMessage(
 	const messageId = newId("msg");
 	const snippet = buildSnippet(parsed.text, parsed.html);
 	const deliveredAddress = getEmailAddress(payload.to) || `${decision.mailbox.localPart}@${decision.mailbox.hostname}`;
-	const toAddr = formatEmailAddress(deliveredAddress, decision.mailbox.displayName ?? decision.mailbox.localPart);
+	// Keep the whole To header so reply-all can address everyone; rules and
+	// webhooks still see the envelope recipient the message was delivered to.
+	const toAddr = parsed.toAddr ?? payload.to;
 	const fromAddr = parsed.fromAddr ?? payload.from;
 	const destination = await resolveInboxRuleDestination(db, {
 		mailboxId: decision.mailbox.mailboxId,
-		toAddress: toAddr,
+		toAddress: payload.to,
 		fromAddress: fromAddr,
 		subject: parsed.subject,
 		content: [parsed.text, parsed.html, snippet].filter(Boolean).join(" "),
 	});
+	let spamAnalysis: Awaited<ReturnType<typeof analyzeSpam>> | null = null;
+	let spamAnalysisError: string | null = null;
+	const [owner] = await db.select({ enabled: users.spamProtectionEnabled }).from(users).where(eq(users.id, decision.mailbox.userId)).limit(1);
+	if (owner?.enabled !== false) {
+		try {
+			spamAnalysis = await analyzeSpam(db, {
+				mailboxId: decision.mailbox.mailboxId,
+				userId: decision.mailbox.userId,
+				envelopeFrom: payload.from,
+				headers: payload.headers,
+				message: parsed,
+			});
+		} catch (error) {
+			spamAnalysisError = error instanceof Error ? error.message.slice(0, 300) : "Spam analysis failed";
+			console.error(`Spam analysis failed for ${messageId}`, error);
+		}
+	}
+	if (destination.status === "spam" && spamAnalysis) {
+		spamAnalysis = {
+			score: 100,
+			verdict: "spam",
+			signals: [{ id: "mailbox_rule_spam", score: 100, reason: "A mailbox rule marked this message as spam" }],
+			fingerprint: spamAnalysis?.fingerprint ?? "",
+		};
+	}
+	const status = destination.status === "received" && spamAnalysis?.verdict === "spam"
+		? "spam"
+		: destination.status;
+	const folderId = status === "spam" ? null : destination.folderId;
 	const contact = await upsertContactFromAddress(env, {
 		userId: decision.mailbox.userId,
 		address: fromAddr,
 		source: "inbound",
 	});
+	const threadId = await resolveThreadId(db, {
+		mailboxId: decision.mailbox.mailboxId,
+		messageId: parsed.messageId,
+		inReplyTo: parsed.inReplyTo,
+		references: parsed.references,
+	});
+
+	// Privacy Shield: neutralize spy pixels and invisible trackers
+	const privacyResult = sanitizeAndNeutralizeTrackers(parsed.html);
+	const sanitizedHtml = privacyResult.cleanHtml || parsed.html;
+
+	// Newsletter & RFC 2369/8058 Unsubscribe header detection
+	let unsubscribeUrl: string | null = null;
+	let unsubscribeMailto: string | null = null;
+	let isNewsletter = false;
+
+	const listUnsubHeader = payload.headers?.["list-unsubscribe"] || payload.headers?.["List-Unsubscribe"];
+	if (listUnsubHeader) {
+		isNewsletter = true;
+		const httpMatch = listUnsubHeader.match(/<(https?:\/\/[^>]+)>/i);
+		if (httpMatch) unsubscribeUrl = httpMatch[1];
+		const mailtoMatch = listUnsubHeader.match(/<mailto:([^>]+)>/i);
+		if (mailtoMatch) unsubscribeMailto = mailtoMatch[1];
+	}
+	if (payload.headers?.["list-id"] || payload.headers?.["precedence"] === "bulk" || payload.headers?.["x-campaign"]) {
+		isNewsletter = true;
+	}
 
 	try {
 		await db.insert(messages).values({
 			id: messageId,
 			userId: decision.mailbox.userId,
 			mailboxId: decision.mailbox.mailboxId,
-			folderId: destination.folderId,
+			folderId,
 			direction: "inbound",
 			providerMessageId: parsed.messageId,
 			fromAddr,
 			toAddr,
+			ccAddr: parsed.ccAddr,
 			subject: parsed.subject,
 			snippet,
 			textBody: parsed.text,
-			htmlBody: parsed.html,
+			htmlBody: sanitizedHtml,
 			rawR2Key: payload.rawR2Key,
-			status: destination.status,
-			threadId: parsed.messageId,
+			status,
+			threadId,
+			inReplyTo: parsed.inReplyTo,
+			references: parsed.references.length ? parsed.references.join(" ") : null,
+			spamScore: spamAnalysis?.score ?? null,
+			spamVerdict: spamAnalysis?.verdict ?? null,
+			spamSignals: spamAnalysis ? JSON.stringify(spamAnalysis.signals) : null,
+			spamAnalyzedAt: spamAnalysis ? new Date() : null,
+			spamAnalysisError,
+			trackersBlockedCount: privacyResult.trackersBlockedCount,
+			trackersBlockedDomains: JSON.stringify(privacyResult.trackersBlockedDomains),
+			unsubscribeUrl,
+			unsubscribeMailto,
+			isNewsletter,
 		});
 
 		await storeMessageAttachments(env, messageId, parsed.attachments, { validate: false });
+		if (spamAnalysis) {
+			try {
+				await recordReputationObservation(env, decision.mailbox.mailboxId, getReputationKeys(parsed, spamAnalysis.fingerprint));
+			} catch (error) {
+				console.error(`Spam reputation observation failed for ${messageId}`, error);
+			}
+			console.info(JSON.stringify({
+				messageId,
+				spamScore: spamAnalysis.score,
+				verdict: spamAnalysis.verdict,
+				signals: spamAnalysis.signals.map((signal) => signal.id),
+			}));
+		}
 	} catch (error) {
 		await db.delete(messages).where(eq(messages.id, messageId));
 		throw error;
 	}
 
-	if (destination.status === "received") {
+	if (status === "received") {
 		try {
 			await sendMailboxAutoReply(env, {
 				mailboxId: decision.mailbox.mailboxId,
@@ -114,24 +213,40 @@ export async function processInboundMessage(
 		}
 	}
 
-	const notificationUserIds = await getMailboxNotificationUserIds(
-		env,
-		decision.mailbox.mailboxId,
-		decision.mailbox.userId,
-	);
-	await notifyUsersOfNewMessage(env, notificationUserIds, {
-		type: "new_message",
-		messageId,
-		mailboxId: decision.mailbox.mailboxId,
-		from: fromAddr,
-		fromName: contact?.displayName ?? null,
-		subject: parsed.subject,
-	});
+	if (status !== "spam") {
+		const notificationUserIds = await getMailboxNotificationUserIds(
+			env,
+			decision.mailbox.mailboxId,
+			decision.mailbox.userId,
+		);
+		await notifyUsersOfNewMessage(env, notificationUserIds, {
+			type: "new_message",
+			messageId,
+			mailboxId: decision.mailbox.mailboxId,
+			from: fromAddr,
+			fromName: contact?.displayName ?? null,
+			subject: parsed.subject,
+		});
+		await sendPushNotificationToUsers(env, notificationUserIds, {
+			title: contact?.displayName || fromAddr,
+			body: parsed.subject || snippet || "New email received",
+			data: {
+				messageId,
+				mailboxId: decision.mailbox.mailboxId,
+				threadId,
+				type: "new_email",
+			},
+		});
+	}
 	await dispatchWebhooks(env, decision.mailbox.userId, "message.inbound", {
 		messageId,
 		from: fromAddr,
-		to: toAddr,
+		to: payload.to,
+		cc: parsed.ccAddr ?? undefined,
 		subject: parsed.subject,
+		threadId,
+		spamScore: spamAnalysis?.score,
+		spamVerdict: spamAnalysis?.verdict,
 	});
 }
 
