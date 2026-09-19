@@ -274,12 +274,12 @@ export const LoginScreen: React.FC = () => {
                       </TouchableOpacity>
                       <TouchableOpacity
                         onPress={() => {
-                          setCustomServerUrl("https://studyholic.xyz");
+                          setCustomServerUrl("https://mailflare-app.cbforin.workers.dev");
                           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                         }}
                         style={styles.presetChip}
                       >
-                        <Text style={styles.presetChipText}>Production (studyholic.xyz)</Text>
+                        <Text style={styles.presetChipText}>Production (Cloudflare)</Text>
                       </TouchableOpacity>
                     </View>
                   </View>

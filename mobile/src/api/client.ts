@@ -5,7 +5,7 @@ const SERVER_URL_KEY = "mailflare_server_url";
 const TOKEN_KEY = "mailflare_auth_token";
 const USER_KEY = "mailflare_auth_user";
 
-export const DEFAULT_SERVER_URL = "http://192.168.1.36:3002";
+export const DEFAULT_SERVER_URL = "https://mailflare-app.cbforin.workers.dev";
 
 export class ApiClient {
   private static instance: ApiClient;
