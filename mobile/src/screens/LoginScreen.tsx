@@ -9,6 +9,7 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
+  Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Flame, Lock, Mail, Server, ChevronDown, ChevronUp, AlertCircle, ShieldCheck } from "lucide-react-native";
@@ -42,7 +43,7 @@ export const LoginScreen: React.FC = () => {
       return;
     }
 
-    const effectiveServer = (customServerUrl || serverUrl || "http://192.168.1.36:3002").trim();
+    const effectiveServer = (customServerUrl || serverUrl || "https://mailflare-app.cbforin.workers.dev").trim();
 
     try {
       setLoading(true);
@@ -56,11 +57,27 @@ export const LoginScreen: React.FC = () => {
       }
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (err: any) {
-      setError(err.message || "Failed to log in. Please check your credentials.");
+      const rawMsg = String(err.message || "");
+      if (rawMsg.includes("UnknownHostException") || rawMsg.includes("Network request failed") || rawMsg.includes("Connection timed out")) {
+        setError("Unable to reach Mailflare server. Please check your internet connection or server address.");
+      } else if (rawMsg.includes("Invalid credentials") || rawMsg.includes("status 401")) {
+        setError("Invalid email or password. Please check your credentials.");
+      } else {
+        setError(rawMsg || "Failed to log in. Please try again.");
+      }
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleForgotPassword = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    Alert.alert(
+      "Password Reset",
+      "To reset your password, visit your Mailflare web portal at https://mailflare-app.cbforin.workers.dev/forgot-password and enter your account email.",
+      [{ text: "OK", style: "default" }]
+    );
   };
 
   const handleVerifyMfa = async () => {
@@ -222,68 +239,15 @@ export const LoginScreen: React.FC = () => {
                       style={[styles.input, { color: theme.textPrimary }]}
                     />
                   </View>
+                  <TouchableOpacity
+                    onPress={handleForgotPassword}
+                    style={{ alignSelf: "flex-end", marginTop: 8 }}
+                  >
+                    <Text style={{ color: theme.primary, fontSize: 12, fontWeight: "600" }}>
+                      Forgot Password?
+                    </Text>
+                  </TouchableOpacity>
                 </View>
-
-                {/* Server Settings Accordion */}
-                <TouchableOpacity
-                  onPress={() => setShowServerConfig(!showServerConfig)}
-                  style={styles.serverToggle}
-                >
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                    <Server size={14} color={theme.textMuted} />
-                    <Text style={[styles.serverToggleText, { color: theme.textMuted }]}>Server Settings</Text>
-                  </View>
-                  {showServerConfig ? (
-                    <ChevronUp size={14} color={theme.textMuted} />
-                  ) : (
-                    <ChevronDown size={14} color={theme.textMuted} />
-                  )}
-                </TouchableOpacity>
-
-                {showServerConfig && (
-                  <View style={[styles.inputGroup, { marginTop: 10 }]}>
-                    <Text style={[styles.inputLabel, { color: theme.textMuted }]}>MAILFLARE ENDPOINT</Text>
-                    <View
-                      style={[
-                        styles.inputContainer,
-                        {
-                          backgroundColor: theme.cardSubtle,
-                          borderColor: theme.border,
-                        },
-                      ]}
-                    >
-                      <TextInput
-                        value={customServerUrl}
-                        onChangeText={setCustomServerUrl}
-                        placeholder="http://192.168.1.36:3002"
-                        placeholderTextColor={theme.textMuted}
-                        autoCapitalize="none"
-                        autoCorrect={false}
-                        style={[styles.input, { color: theme.textPrimary }]}
-                      />
-                    </View>
-                    <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
-                      <TouchableOpacity
-                        onPress={() => {
-                          setCustomServerUrl("http://192.168.1.36:3002");
-                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                        }}
-                        style={styles.presetChip}
-                      >
-                        <Text style={styles.presetChipText}>Local Dev (:3002)</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        onPress={() => {
-                          setCustomServerUrl("https://mailflare-app.cbforin.workers.dev");
-                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                        }}
-                        style={styles.presetChip}
-                      >
-                        <Text style={styles.presetChipText}>Production (Cloudflare)</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                )}
 
                 {/* Sign In Button */}
                 <TouchableOpacity
@@ -298,6 +262,70 @@ export const LoginScreen: React.FC = () => {
                     <Text style={styles.signInButtonText}>Sign In to Mailflare</Text>
                   )}
                 </TouchableOpacity>
+
+                {/* Server Settings Accordion (Advanced / Self-Hosted) */}
+                <TouchableOpacity
+                  onPress={() => setShowServerConfig(!showServerConfig)}
+                  style={[styles.serverToggle, { marginTop: 16 }]}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                    <Server size={13} color={theme.textMuted} />
+                    <Text style={[styles.serverToggleText, { color: theme.textMuted, fontSize: 11 }]}>
+                      Custom Server Instance
+                    </Text>
+                  </View>
+                  {showServerConfig ? (
+                    <ChevronUp size={13} color={theme.textMuted} />
+                  ) : (
+                    <ChevronDown size={13} color={theme.textMuted} />
+                  )}
+                </TouchableOpacity>
+
+                {showServerConfig && (
+                  <View style={[styles.inputGroup, { marginTop: 8 }]}>
+                    <Text style={[styles.inputLabel, { color: theme.textMuted, fontSize: 10 }]}>SERVER ENDPOINT</Text>
+                    <View
+                      style={[
+                        styles.inputContainer,
+                        {
+                          backgroundColor: theme.cardSubtle,
+                          borderColor: theme.border,
+                          height: 42,
+                        },
+                      ]}
+                    >
+                      <TextInput
+                        value={customServerUrl}
+                        onChangeText={setCustomServerUrl}
+                        placeholder="https://mailflare-app.cbforin.workers.dev"
+                        placeholderTextColor={theme.textMuted}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        style={[styles.input, { color: theme.textPrimary, fontSize: 13 }]}
+                      />
+                    </View>
+                    <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
+                      <TouchableOpacity
+                        onPress={() => {
+                          setCustomServerUrl("https://mailflare-app.cbforin.workers.dev");
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        }}
+                        style={styles.presetChip}
+                      >
+                        <Text style={styles.presetChipText}>Production</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => {
+                          setCustomServerUrl("http://192.168.1.36:3002");
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        }}
+                        style={styles.presetChip}
+                      >
+                        <Text style={styles.presetChipText}>Local Dev (:3002)</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
               </>
             )}
           </View>
